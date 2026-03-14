@@ -3,6 +3,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { HiveGraph } from './core/graph.js';
 import { createBioMaterial, createWireMaterial, updateShaderTime } from './rendering/shaders.js';
 import { initInteraction } from './interaction.js';
+import { createTimeline } from './ui/timeline.js';
+import { createSearchPanel } from './ui/search.js';
 
 // === SACRED GEOMETRY CONFIG ===
 const FOLDER_THEME = {
@@ -237,6 +239,20 @@ async function init() {
   // === INIT INTERACTION ===
   initInteraction(camera, renderer, graph, nodeMeshes, controls, focusOnNode);
 
+
+  // === TIMELINE + SEARCH ===
+  let timelineTime = Infinity;
+  let searchFilter = null;
+
+  const timeline = createTimeline(graph, (time, minDate, maxDate) => {
+    timelineTime = time;
+    graph.reheat(0.02);
+  });
+
+  const search = createSearchPanel(graph, (filters) => {
+    searchFilter = filters;
+  });
+
   // === RENDER LOOP (live simulation) ===
   const clock = new THREE.Clock();
 
@@ -253,7 +269,20 @@ async function init() {
       for (const [nodeId, { instanceIdx, graphIdx }] of group.indices) {
         const node = graph.nodes[graphIdx];
         const isHub = HUB_NODES.has(node.id);
-        const scale = isHub ? 5 : Math.max(1.2, Math.log2(node.wordCount / 100 + 1) * 0.8);
+        const baseScale = isHub ? 5 : Math.max(1.2, Math.log2(node.wordCount / 100 + 1) * 0.8);
+        // Visibility: timeline + search filter
+        const nodeTs = (typeof node.created === 'string' && /^\d{4}/.test(node.created))
+          ? new Date(node.created).getTime() : 0;
+        const timeVisible = nodeTs <= timelineTime;
+        const searchVisible = !searchFilter || (
+          searchFilter.folders.has(node.folder) &&
+          (!searchFilter.type || node.type === searchFilter.type) &&
+          (!searchFilter.search || node.id.toLowerCase().includes(searchFilter.search) ||
+           node.title.toLowerCase().includes(searchFilter.search) ||
+           node.tags.some(t => t.toLowerCase().includes(searchFilter.search)))
+        );
+        const visible = timeVisible && searchVisible;
+        const scale = visible ? baseScale : 0.001;
         dummy.position.set(node.x, node.y, node.z);
         dummy.scale.setScalar(scale);
         if (isHub) dummy.rotation.y = elapsed * 0.15;
