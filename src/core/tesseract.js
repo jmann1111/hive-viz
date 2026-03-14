@@ -8,35 +8,49 @@ const PANEL_WIDTH = 2;
 const PANEL_HEIGHT = 2.5;
 const INTERSECTION_SIZE = 8;
 
-// Folder -> corridor direction mapping (radial layout from origin)
+// Skip raw data (1210 ChatGPT transcripts would make one corridor infinite)
+const SKIP_PATHS = ['60-Knowledge/raw-data'];
+
+// Folder -> corridor direction. Grid layout from central intersection.
+// Layer 0 (y=0): main folders. Layer 1 (y=12): secondary folders.
 const FOLDER_DIRECTIONS = {
-  '10-Sessions':     { axis: 'x', sign: 1 },
-  '20-Architecture': { axis: 'z', sign: 1 },
-  '30-Projects':     { axis: 'x', sign: -1 },
-  '50-Playbooks':    { axis: 'z', sign: -1 },
-  '60-Knowledge':    { axis: 'x', sign: 1, offset: 1 },
-  '70-Ops':          { axis: 'z', sign: 1, offset: 1 },
-  '01-Daily':        { axis: 'x', sign: -1, offset: 1 },
-  '40-Decisions':    { axis: 'z', sign: -1, offset: 1 },
-  '80-Secure':       { axis: 'x', sign: 1, offset: 2 },
-  '39-Archive':      { axis: 'z', sign: 1, offset: 2 },
-  '00-Inbox':        { axis: 'x', sign: -1, offset: 2 },
-  '99-Templates':    { axis: 'z', sign: -1, offset: 2 },
+  '10-Sessions':     { axis: 'z', sign: 1,  layer: 0 },
+  '20-Architecture': { axis: 'x', sign: 1,  layer: 0 },
+  '60-Knowledge':    { axis: 'z', sign: -1, layer: 0 },
+  '70-Ops':          { axis: 'x', sign: -1, layer: 0 },
+  '30-Projects':     { axis: 'z', sign: 1,  layer: 1 },
+  '50-Playbooks':    { axis: 'x', sign: 1,  layer: 1 },
+  '01-Daily':        { axis: 'z', sign: -1, layer: 1 },
+  '40-Decisions':    { axis: 'x', sign: -1, layer: 1 },
+  '80-Secure':       { axis: 'z', sign: 1,  layer: 2 },
+  '39-Archive':      { axis: 'x', sign: 1,  layer: 2 },
+  '00-Inbox':        { axis: 'z', sign: -1, layer: 2 },
+  '99-Templates':    { axis: 'x', sign: -1, layer: 2 },
 };
+const LAYER_OFFSET = 12;
 
 export class Tesseract {
   constructor(graphData) {
-    this.nodes = graphData.nodes;
-    this.edges = graphData.edges;
-    this.corridors = new Map();    // folderId -> corridor data
-    this.panels = new Map();       // nodeId -> panel position data
-    this.nodeIndex = new Map();    // nodeId -> node data
-    this.adjacency = new Map();    // nodeId -> Set of linked nodeIds
+    // Filter out raw-data and root-level files
+    this.nodes = graphData.nodes.filter(n => {
+      if (SKIP_PATHS.some(p => n.path.startsWith(p))) return false;
+      if (!n.folder || n.folder.endsWith('.md')) return false;
+      return true;
+    });
+    this.edges = graphData.edges.filter(e => {
+      const nodeIds = new Set(this.nodes.map(n => n.id));
+      return nodeIds.has(e.source) && nodeIds.has(e.target);
+    });
+    this.corridors = new Map();
+    this.panels = new Map();
+    this.nodeIndex = new Map();
+    this.adjacency = new Map();
 
     for (const n of this.nodes) this.nodeIndex.set(n.id, n);
     this._buildAdjacency();
     this._buildCorridors();
     this._placePanels();
+    console.log(`Tesseract: ${this.nodes.length} nodes (${graphData.nodes.length - this.nodes.length} filtered), ${this.corridors.size} corridors, ${this.panels.size} panels`);
   }
 
   _buildAdjacency() {
@@ -48,26 +62,21 @@ export class Tesseract {
   }
 
   _buildCorridors() {
-    // Group nodes by folder
     const folderGroups = new Map();
     for (const n of this.nodes) {
-      const folder = n.folder;
-      if (!folderGroups.has(folder)) folderGroups.set(folder, []);
-      folderGroups.get(folder).push(n);
+      const f = n.folder;
+      if (!folderGroups.has(f)) folderGroups.set(f, []);
+      folderGroups.get(f).push(n);
     }
-
     for (const [folder, nodes] of folderGroups) {
       const dir = FOLDER_DIRECTIONS[folder];
       if (!dir) continue;
-      const yOffset = (dir.offset || 0) * (CORRIDOR_HEIGHT + 4);
+      const yOffset = (dir.layer || 0) * LAYER_OFFSET;
       const length = nodes.length * PANEL_SPACING + INTERSECTION_SIZE;
-
-      // Corridor start and end positions
       const start = { x: 0, y: yOffset, z: 0 };
       const end = { ...start };
       if (dir.axis === 'x') end.x = dir.sign * length;
       else end.z = dir.sign * length;
-
       this.corridors.set(folder, {
         folder, nodes, start, end, dir,
         width: CORRIDOR_WIDTH, height: CORRIDOR_HEIGHT,
@@ -81,10 +90,9 @@ export class Tesseract {
       const { dir, yOffset, nodes } = corridor;
       nodes.forEach((node, i) => {
         const dist = INTERSECTION_SIZE + i * PANEL_SPACING;
-        const side = i % 2 === 0 ? 1 : -1; // alternate walls
+        const side = i % 2 === 0 ? 1 : -1;
         const pos = { x: 0, y: yOffset + CORRIDOR_HEIGHT * 0.35, z: 0 };
-        const normal = { x: 0, y: 0, z: 0 }; // wall face direction
-
+        const normal = { x: 0, y: 0, z: 0 };
         if (dir.axis === 'x') {
           pos.x = dir.sign * dist;
           pos.z = side * (CORRIDOR_WIDTH / 2);
@@ -94,7 +102,6 @@ export class Tesseract {
           pos.x = side * (CORRIDOR_WIDTH / 2);
           normal.x = -side;
         }
-
         this.panels.set(node.id, {
           id: node.id, title: node.title, folder,
           type: node.type, tags: node.tags, path: node.path,
@@ -108,55 +115,6 @@ export class Tesseract {
     }
   }
 
-  // Get waypoints for flying from one panel to another
-  getFlightPath(fromId, toId) {
-    const from = this.panels.get(fromId);
-    const to = this.panels.get(toId);
-    if (!from || !to) return null;
-
-    const waypoints = [];
-    // Pull back to corridor center from current panel
-    const fromCenter = { ...from.pos };
-    if (from.corridorDir === 'x') fromCenter.z = 0;
-    else fromCenter.x = 0;
-    fromCenter.y = from.pos.y + 1;
-    waypoints.push(fromCenter);
-
-    // If different corridors, route through intersection
-    if (from.folder !== to.folder) {
-      const fromCorridor = this.corridors.get(from.folder);
-      const toCorridor = this.corridors.get(to.folder);
-      // Fly to intersection center at source Y
-      waypoints.push({
-        x: 0, y: fromCorridor.yOffset + CORRIDOR_HEIGHT * 0.4, z: 0
-      });
-      // If different Y level, add vertical transition
-      if (fromCorridor.yOffset !== toCorridor.yOffset) {
-        waypoints.push({
-          x: 0, y: toCorridor.yOffset + CORRIDOR_HEIGHT * 0.4, z: 0
-        });
-      }
-    }
-
-    // Fly down destination corridor center
-    const toCenter = { ...to.pos };
-    if (to.corridorDir === 'x') toCenter.z = 0;
-    else toCenter.x = 0;
-    toCenter.y = to.pos.y + 1;
-    waypoints.push(toCenter);
-
-    // Final approach: slide to face the panel
-    const approach = { ...to.pos };
-    approach.y = to.pos.y + 0.5;
-    // Stand back from the wall
-    if (to.normal.x !== 0) approach.x += to.normal.x * 2.5;
-    if (to.normal.z !== 0) approach.z += to.normal.z * 2.5;
-    waypoints.push(approach);
-
-    return { waypoints, from, to };
-  }
-
-  // Search panels by text query
   search(query) {
     const q = query.toLowerCase();
     const results = [];
@@ -176,11 +134,5 @@ export class Tesseract {
 
   getNeighbors(id) {
     return [...(this.adjacency.get(id) || [])].map(nId => this.panels.get(nId)).filter(Boolean);
-  }
-
-  getCorridorList() {
-    return [...this.corridors.entries()].map(([folder, c]) => ({
-      folder, fileCount: c.nodes.length, direction: c.dir
-    }));
   }
 }
