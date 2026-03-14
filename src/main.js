@@ -263,7 +263,7 @@ function buildAccentPanels(t) {
     }
   }
 }
-// ============ INFINITE 3D LATTICE: Corridors at every Y level, colored zones, full skybox ============
+// ============ INFINITE 3D LATTICE: Mixed surfaces, solids, checkers, panels ============
 function buildBackgroundGrid() {
   function hash(a, b) { return Math.abs(Math.sin(a * 127.1 + b * 311.7) * 43758.5453) % 1; }
   function hash3(a, b, c) { return Math.abs(Math.sin(a * 73.1 + b * 157.3 + c * 239.7) * 43758.5453) % 1; }
@@ -272,7 +272,6 @@ function buildBackgroundGrid() {
   const range = 500;
   const cellXZ = 20;
   const yLevels = [-40, -20, 0, 20, 40, 60, 80];
-  const crossStep = 5;
   const ZONE_PALETTES = [
     [0xcc3333, 0xdd5533, 0xee7733],
     [0x3366cc, 0x4488dd, 0x55aaee],
@@ -286,6 +285,11 @@ function buildBackgroundGrid() {
     const t = Math.min(dist / range, 1);
     return new THREE.Color(0.78 + t * 0.15, 0.78 + t * 0.15, 0.78 + t * 0.15);
   }
+  // Shared materials for solid surfaces
+  const wallMat = new THREE.MeshBasicMaterial({ color: 0xe8e8e8, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false });
+  const floorWhite = new THREE.MeshBasicMaterial({ color: 0xf0f0f0, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false });
+  const floorDark = new THREE.MeshBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false });
+
   for (const baseY of yLevels) {
     for (let gx = -range; gx <= range; gx += cellXZ) {
       for (let gz = -range; gz <= range; gz += cellXZ) {
@@ -297,60 +301,106 @@ function buildBackgroundGrid() {
         const ceilH = 6 + h * 14;
         const w = 1.5 + h2 * 3;
         const y0 = baseY, y1 = baseY + ceilH;
-        const isColorZone = hash3(gx * 0.1, gz * 0.1, baseY * 0.3) > 0.82;
+        const isColorZone = hash3(gx * 0.1, gz * 0.1, baseY * 0.3) > 0.8;
         let lc = gc;
+
+        // === COLORED ZONES: solid blocks + floating panels ===
         if (isColorZone) {
           const palette = ZONE_PALETTES[Math.floor(hash3(gx, gz, baseY + 1) * ZONE_PALETTES.length)];
-          lc = new THREE.Color(palette[Math.floor(h * palette.length)]);
-          const bw = w * 2 + h * 4, bh = ceilH * (0.5 + h * 0.5), bd = w * 2 + h2 * 4;
-          const mat = new THREE.MeshBasicMaterial({ color: lc, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false });
+          const hex = palette[Math.floor(h * palette.length)];
+          lc = new THREE.Color(hex);
+          // Solid block
+          const bw = 2 + h * 6, bh = 3 + h * ceilH * 0.6, bd = 2 + h2 * 6;
+          const mat = new THREE.MeshBasicMaterial({ color: hex, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false });
           const mesh = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), mat);
           mesh.position.set(gx, baseY + bh/2, gz);
           scene.add(mesh);
+          // Floating colored panel nearby
+          if (h > 0.4) {
+            const pGeo = new THREE.PlaneGeometry(2 + h * 5, 1 + h2 * 4);
+            const pMat = new THREE.MeshBasicMaterial({ color: palette[(Math.floor(h2 * palette.length))], transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false });
+            const pm = new THREE.Mesh(pGeo, pMat);
+            pm.position.set(gx + (h-0.5)*8, baseY + ceilH * 0.6, gz + (h2-0.5)*8);
+            pm.rotation.y = h * Math.PI;
+            scene.add(pm);
+          }
         }
-        // Z corridor
+
+        // === CORRIDOR EDGE LINES ONLY (no cross-sections, much cleaner) ===
+        // Just the 4 rail lines per direction, no wall fills
         const zLen = 60 + h * 80, z0 = gz - zLen/2, z1 = gz + zLen/2;
         addLine(pos,col, gx-w,y0,z0, gx-w,y0,z1, lc); addLine(pos,col, gx+w,y0,z0, gx+w,y0,z1, lc);
         addLine(pos,col, gx-w,y1,z0, gx-w,y1,z1, lc); addLine(pos,col, gx+w,y1,z0, gx+w,y1,z1, lc);
-        for (let z = z0; z <= z1; z += crossStep) {
-          addLine(pos,col, gx-w,y0,z, gx-w,y1,z, lc); addLine(pos,col, gx+w,y0,z, gx+w,y1,z, lc);
-          addLine(pos,col, gx-w,y0,z, gx+w,y0,z, lc); addLine(pos,col, gx-w,y1,z, gx+w,y1,z, lc);
-        }
-        // X corridor
         const xLen = 60 + h2 * 80, x0 = gx - xLen/2, x1 = gx + xLen/2;
         addLine(pos,col, x0,y0,gz-w, x1,y0,gz-w, lc); addLine(pos,col, x0,y0,gz+w, x1,y0,gz+w, lc);
         addLine(pos,col, x0,y1,gz-w, x1,y1,gz-w, lc); addLine(pos,col, x0,y1,gz+w, x1,y1,gz+w, lc);
-        for (let x = x0; x <= x1; x += crossStep) {
-          addLine(pos,col, x,y0,gz-w, x,y1,gz-w, lc); addLine(pos,col, x,y0,gz+w, x,y1,gz+w, lc);
-          addLine(pos,col, x,y0,gz-w, x,y0,gz+w, lc); addLine(pos,col, x,y1,gz-w, x,y1,gz+w, lc);
+
+        // === SPARSE CROSS-SECTIONS (every 20 units, not 5) ===
+        for (let z = z0; z <= z1; z += 20) {
+          addLine(pos,col, gx-w,y0,z, gx-w,y1,z, gc); addLine(pos,col, gx+w,y0,z, gx+w,y1,z, gc);
         }
+        for (let x = x0; x <= x1; x += 20) {
+          addLine(pos,col, x,y0,gz-w, x,y1,gz-w, gc); addLine(pos,col, x,y0,gz+w, x,y1,gz+w, gc);
+        }
+
         // Corner columns
         addLine(pos,col, gx-w,y0,gz-w, gx-w,y1,gz-w, lc); addLine(pos,col, gx+w,y0,gz-w, gx+w,y1,gz-w, lc);
         addLine(pos,col, gx+w,y0,gz+w, gx+w,y1,gz+w, lc); addLine(pos,col, gx-w,y0,gz+w, gx-w,y1,gz+w, lc);
-        // Vertical shafts to next level (~15%)
+
+        // === SOLID FLOOR TILES (checkerboard pattern) ===
+        const isChecker = ((Math.floor(gx/cellXZ) + Math.floor(gz/cellXZ) + Math.floor(baseY/20)) % 2 === 0);
+        const tileMat = isChecker ? floorWhite : floorDark;
+        const tileGeo = new THREE.PlaneGeometry(cellXZ * 0.9, cellXZ * 0.9);
+        const tile = new THREE.Mesh(tileGeo, tileMat);
+        tile.rotation.x = -Math.PI / 2;
+        tile.position.set(gx, y0 + 0.01, gz);
+        scene.add(tile);
+
+        // === SOLID WALL PANELS (random subset, ~25%) ===
+        if (h > 0.75) {
+          const wallGeo = new THREE.PlaneGeometry(w * 2, ceilH);
+          const wp = new THREE.Mesh(wallGeo, wallMat);
+          const side = h2 > 0.5 ? 1 : -1;
+          if (hash3(gx, gz, baseY + 2) > 0.5) {
+            wp.position.set(gx, y0 + ceilH/2, gz + side * w);
+          } else {
+            wp.position.set(gx + side * w, y0 + ceilH/2, gz);
+            wp.rotation.y = Math.PI / 2;
+          }
+          scene.add(wp);
+        }
+
+        // === CEILING PANEL (random subset, ~20%) ===
+        if (h2 > 0.8) {
+          const cGeo = new THREE.PlaneGeometry(w * 2, w * 2);
+          const cp = new THREE.Mesh(cGeo, wallMat);
+          cp.rotation.x = -Math.PI / 2;
+          cp.position.set(gx, y1 - 0.01, gz);
+          scene.add(cp);
+        }
+
+        // Vertical shafts (~15%)
         if (h > 0.85 && baseY < 60) {
           const st = baseY + 30, sw = 1.5, sc = ghostColor(dist * 0.7);
           addLine(pos,col, gx-sw,y1,gz-sw, gx-sw,st,gz-sw, sc); addLine(pos,col, gx+sw,y1,gz-sw, gx+sw,st,gz-sw, sc);
           addLine(pos,col, gx+sw,y1,gz+sw, gx+sw,st,gz+sw, sc); addLine(pos,col, gx-sw,y1,gz+sw, gx-sw,st,gz+sw, sc);
-          for (let sy = y1 + 5; sy < st; sy += 5) {
-            addLine(pos,col, gx-sw,sy,gz-sw, gx+sw,sy,gz-sw, sc); addLine(pos,col, gx+sw,sy,gz-sw, gx+sw,sy,gz+sw, sc);
-            addLine(pos,col, gx+sw,sy,gz+sw, gx-sw,sy,gz+sw, sc); addLine(pos,col, gx-sw,sy,gz+sw, gx-sw,sy,gz-sw, sc);
-          }
         }
+
         // Floating platforms (~10%)
         if (h2 > 0.9) {
           const platY = baseY + ceilH + 5 + h * 20, pw = 3 + h * 5;
           const pc = isColorZone ? lc : ghostColor(dist * 0.6);
           addLine(pos,col, gx-pw,platY,gz-pw, gx+pw,platY,gz-pw, pc); addLine(pos,col, gx+pw,platY,gz-pw, gx+pw,platY,gz+pw, pc);
           addLine(pos,col, gx+pw,platY,gz+pw, gx-pw,platY,gz+pw, pc); addLine(pos,col, gx-pw,platY,gz+pw, gx-pw,platY,gz-pw, pc);
+          // Solid platform surface
+          const platGeo = new THREE.PlaneGeometry(pw*2, pw*2);
+          const platMesh = new THREE.Mesh(platGeo, isColorZone ? new THREE.MeshBasicMaterial({ color: lc, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false }) : wallMat);
+          platMesh.rotation.x = -Math.PI / 2;
+          platMesh.position.set(gx, platY, gz);
+          scene.add(platMesh);
         }
       }
     }
-  }
-  // Floor grid
-  const fg = new THREE.Color(0xdddddd);
-  for (let x = -range; x <= range; x += 8) {
-    addLine(pos,col, x,0,-range, x,0,range, fg); addLine(pos,col, -range,0,x, range,0,x, fg);
   }
   scene.add(makeLines(pos, col));
 }
@@ -424,57 +474,78 @@ function navigateTo(targetId) {
   if (!panel) return;
   hideContentPanel();
   const from = camera.position.clone();
-  const eyeY = panel.pos.y + 1.8;
-  const standX = panel.pos.x + (panel.normal.x || 0) * 5;
-  const standZ = panel.pos.z + (panel.normal.z || 0) * 5;
-  const dest = new THREE.Vector3(standX, eyeY, standZ);
-  const dx = dest.x - from.x, dy = dest.y - from.y, dz = dest.z - from.z;
-  const flatDist = Math.sqrt(dx*dx + dz*dz);
-  const totalDist = Math.sqrt(dx*dx + dy*dy + dz*dz);
-
-  // TRUE 3D FLIGHT: S-curve through space with lateral offset for drama
-  // Perpendicular offset so camera sweeps THROUGH corridors, not over them
-  const perpX = -dz / (flatDist || 1); // perpendicular to travel direction
-  const perpZ = dx / (flatDist || 1);
-  const sweepDist = Math.min(flatDist * 0.2, 60); // how far to the side it sweeps
-
-  // 5 waypoints: start, sweep-out, apex, sweep-in, destination
-  const t1 = 0.25, t2 = 0.5, t3 = 0.75;
-  const arcH = Math.min(totalDist * 0.12, 35);
-  const wp1 = new THREE.Vector3(
-    from.x + dx * t1 + perpX * sweepDist,
-    from.y + dy * t1 + arcH * 0.7,
-    from.z + dz * t1 + perpZ * sweepDist
-  );
-  const wp2 = new THREE.Vector3(
-    from.x + dx * t2,
-    Math.max(from.y, eyeY) + arcH,
-    from.z + dz * t2
-  );
-  const wp3 = new THREE.Vector3(
-    from.x + dx * t3 - perpX * sweepDist * 0.5,
-    from.y + dy * t3 + arcH * 0.3,
-    from.z + dz * t3 - perpZ * sweepDist * 0.5
+  const dest = new THREE.Vector3(
+    panel.pos.x + (panel.normal.x || 0) * 5,
+    panel.pos.y + 1.8,
+    panel.pos.z + (panel.normal.z || 0) * 5
   );
 
-  const waypoints = [from.clone(), wp1, wp2, wp3, dest.clone()];
-  const curve = new THREE.CatmullRomCurve3(waypoints, false, 'catmullrom', 0.4);
-  const duration = 5 + Math.min(5, totalDist / 100);
+  // === PIPE MAZE PATHFINDING ===
+  // Snap to grid, then build axis-aligned corridor waypoints
+  const grid = 20; // matches cellXZ
+  const snapX = (v) => Math.round(v / grid) * grid;
+  const snapZ = (v) => Math.round(v / grid) * grid;
+  const snapY = (v) => {
+    const levels = [-40, -20, 0, 20, 40, 60, 80];
+    return levels.reduce((best, l) => Math.abs(l - v) < Math.abs(best - v) ? l : best, 0);
+  };
+
+  const startGrid = { x: snapX(from.x), y: snapY(from.y), z: snapZ(from.z) };
+  const endGrid = { x: snapX(dest.x), y: snapY(dest.y), z: snapZ(dest.z) };
+  const corridorY = startGrid.y + 4; // fly at corridor center height
+
+  // Build waypoints: straight down hallways, 90-degree turns at intersections
+  const wps = [];
+  wps.push(from.clone()); // actual camera position
+  wps.push(new THREE.Vector3(startGrid.x, corridorY, startGrid.z)); // snap to grid
+
+  // Phase 1: Travel along X to target X column
+  if (startGrid.x !== endGrid.x) {
+    wps.push(new THREE.Vector3(endGrid.x, corridorY, startGrid.z));
+  }
+  // Phase 2: If Y level changes, go up/down through shaft
+  const endCorridorY = endGrid.y + 4;
+  if (corridorY !== endCorridorY) {
+    wps.push(new THREE.Vector3(endGrid.x, endCorridorY, startGrid.z));
+  }
+  // Phase 3: Travel along Z to target Z row
+  if (startGrid.z !== endGrid.z) {
+    wps.push(new THREE.Vector3(endGrid.x, endCorridorY, endGrid.z));
+  }
+  // Phase 4: Final approach to actual panel position
+  wps.push(dest.clone());
+
+  // Remove duplicate consecutive waypoints
+  const cleanWps = [wps[0]];
+  for (let i = 1; i < wps.length; i++) {
+    if (wps[i].distanceTo(wps[i-1]) > 1) cleanWps.push(wps[i]);
+  }
+  if (cleanWps.length < 2) cleanWps.push(dest.clone());
+
+  // Compute total path length for duration
+  let totalLen = 0;
+  for (let i = 1; i < cleanWps.length; i++) totalLen += cleanWps[i].distanceTo(cleanWps[i-1]);
+
+  // Use CatmullRom with LOW tension for tight corners (FPV feel)
+  const curve = new THREE.CatmullRomCurve3(cleanWps, false, 'catmullrom', 0.15);
+  // Duration: 5-10s based on distance
+  const duration = Math.max(4, Math.min(10, totalLen / 60));
 
   flightState = {
-    curve, duration,
+    curve, duration, cleanWps,
     lookTarget: new THREE.Vector3(panel.pos.x, panel.pos.y, panel.pos.z),
     startTime: clock.getElapsedTime(),
+    prevTangent: null,
+    smoothRoll: 0,
   };
   currentPanel = targetId;
 }
-// ============ FLIGHT UPDATE: Hawk soaring, wormhole phases ============
+// ============ FLIGHT UPDATE: FPV Drone through pipe maze ============
 function updateFlight(elapsed) {
   if (!flightState) return;
   const rawT = (elapsed - flightState.startTime) / flightState.duration;
 
   if (rawT >= 1.0) {
-    // Arrival: snap to final position, face the panel cleanly
     camera.position.copy(flightState.curve.getPoint(1.0));
     camera.lookAt(flightState.lookTarget);
     camera.rotation.z = 0;
@@ -483,48 +554,52 @@ function updateFlight(elapsed) {
     return;
   }
 
-  // Smooth S-curve easing (no jerks, no sudden changes)
-  // Uses smoothstep: 3t^2 - 2t^3. Starts slow, accelerates, decelerates.
+  // FPV easing: fast cruise in the middle, smooth accel/decel at ends
+  // quintic smoothstep for ultra-smooth feel: 6t^5 - 15t^4 + 10t^3
   const t = Math.max(0, Math.min(1, rawT));
-  const ease = t * t * (3 - 2 * t);
+  const ease = t * t * t * (t * (t * 6 - 15) + 10);
 
-  // Position along the curve
   camera.position.copy(flightState.curve.getPoint(ease));
 
-  // LOOK DIRECTION: Three phases like a wormhole
-  // Phase 1 (0-70%): Look ahead along the flight path (soaring)
-  // Phase 2 (70-90%): Gradually blend from path-ahead to panel target
-  // Phase 3 (90-100%): Lock onto panel target (smooth arrival)
-  const lookAheadT = Math.min(ease + 0.06, 1.0);
-  const pathLookPt = flightState.curve.getPoint(lookAheadT);
+  // FPV LOOK: always look forward along tangent (like a drone's camera gimbal)
+  const tangent = flightState.curve.getTangent(ease);
 
-  if (t < 0.7) {
-    // Phase 1: Pure soaring, look where you're going
-    camera.lookAt(pathLookPt);
-  } else if (t < 0.9) {
-    // Phase 2: Blend from path direction to target panel
-    const blend = (t - 0.7) / 0.2; // 0 to 1 over this range
-    const smoothBlend = blend * blend * (3 - 2 * blend);
-    const lx = pathLookPt.x + (flightState.lookTarget.x - pathLookPt.x) * smoothBlend;
-    const ly = pathLookPt.y + (flightState.lookTarget.y - pathLookPt.y) * smoothBlend;
-    const lz = pathLookPt.z + (flightState.lookTarget.z - pathLookPt.z) * smoothBlend;
+  // During last 15%, blend from tangent to panel target (smooth lock-on arrival)
+  if (t > 0.85) {
+    const blend = (t - 0.85) / 0.15;
+    const sb = blend * blend * (3 - 2 * blend);
+    const fwd = camera.position.clone().add(tangent.multiplyScalar(20));
+    const lx = fwd.x + (flightState.lookTarget.x - fwd.x) * sb;
+    const ly = fwd.y + (flightState.lookTarget.y - fwd.y) * sb;
+    const lz = fwd.z + (flightState.lookTarget.z - fwd.z) * sb;
     camera.lookAt(lx, ly, lz);
   } else {
-    // Phase 3: Locked on target, smooth arrival
-    camera.lookAt(flightState.lookTarget);
+    // Pure FPV: look where you're flying
+    const lookPt = camera.position.clone().add(tangent.clone().multiplyScalar(30));
+    camera.lookAt(lookPt);
   }
 
-  // Gentle camera roll: proportional to lateral velocity, very subtle
-  if (t > 0.05 && t < 0.9) {
-    const tangent = flightState.curve.getTangent(ease);
-    // Roll based on how much we're turning (change in heading)
-    const targetRoll = Math.atan2(tangent.x, tangent.z) * 0.12;
-    // Smooth the roll with lerp toward target
-    camera.rotation.z += (targetRoll - camera.rotation.z) * 0.03;
-  } else {
-    // Ease roll back to zero at start and end
-    camera.rotation.z *= 0.9;
+  // FPV ROLL: bank into turns based on lateral acceleration
+  // Compute heading change rate for natural banking
+  const curTangent = flightState.curve.getTangent(ease);
+  if (flightState.prevTangent) {
+    const headingNow = Math.atan2(curTangent.x, curTangent.z);
+    const headingPrev = Math.atan2(flightState.prevTangent.x, flightState.prevTangent.z);
+    let dHeading = headingNow - headingPrev;
+    // Normalize to [-PI, PI]
+    while (dHeading > Math.PI) dHeading -= Math.PI * 2;
+    while (dHeading < -Math.PI) dHeading += Math.PI * 2;
+    // Target roll proportional to heading change (like a real aircraft)
+    const targetRoll = -dHeading * 8; // amplify for visible bank
+    const clampedRoll = Math.max(-0.4, Math.min(0.4, targetRoll));
+    // Smooth interpolation (low-pass filter, no jerks)
+    flightState.smoothRoll += (clampedRoll - flightState.smoothRoll) * 0.06;
   }
+  flightState.prevTangent = curTangent.clone();
+
+  // Apply roll, ease to zero at start and end
+  const rollEnvelope = t < 0.1 ? t / 0.1 : t > 0.9 ? (1 - t) / 0.1 : 1;
+  camera.rotation.z = flightState.smoothRoll * rollEnvelope;
 }
 // ============ CONTENT PANEL ============
 const contentEl = document.createElement('div');
