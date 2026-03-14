@@ -1,488 +1,313 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { HiveGraph } from './core/graph.js';
-import { createBioMaterial, createWireMaterial, updateShaderTime } from './rendering/shaders.js';
-import { initInteraction } from './interaction.js';
-import { createTimeline } from './ui/timeline.js';
-import { createSearchPanel } from './ui/search.js';
+import { Tesseract } from './core/tesseract.js';
 
-// === SACRED GEOMETRY CONFIG ===
-const FOLDER_THEME = {
-  '10-Sessions':     { core: '#1a6bff', shell: '#0a2a66', geo: 'icosahedron' },
-  '20-Architecture': { core: '#9b4dff', shell: '#3a1866', geo: 'octahedron' },
-  '30-Projects':     { core: '#ffaa00', shell: '#664400', geo: 'tetrahedron' },
-  '50-Playbooks':    { core: '#00e6b0', shell: '#004d3a', geo: 'box' },
-  '60-Knowledge':    { core: '#00ff66', shell: '#003d1a', geo: 'dodecahedron' },
-  '70-Ops':          { core: '#ff3366', shell: '#661428', geo: 'box' },
-  '01-Daily':        { core: '#00ccff', shell: '#003344', geo: 'icosahedron' },
-  '40-Decisions':    { core: '#9b4dff', shell: '#3a1866', geo: 'octahedron' },
-  '80-Secure':       { core: '#ff3366', shell: '#661428', geo: 'box' },
-};
-const DEFAULT_THEME = { core: '#e2e8f0', shell: '#334155', geo: 'icosahedron' };
+// === ANTICHAMBER PALETTE ===
+const BG = 0xf0f0f0;
+const LINE_DARK = 0x111111;
+const LINE_MED = 0x555555;
+const LINE_LIGHT = 0xbbbbbb;
+const LINE_GRID = 0xdddddd;
 
-const HUB_NODES = new Set([
-  'SOUL', 'psychological-profile', 'command-center',
-  'walt-boot', 'vault-conventions', 'open-loops'
-]);
-
-function getTheme(folder) {
-  if (folder.startsWith('60-Knowledge/raw-data')) return { ...DEFAULT_THEME, core: '#374151', shell: '#1a1a2e' };
-  return FOLDER_THEME[folder] || DEFAULT_THEME;
-}
-
-const GEOMETRIES = {
-  icosahedron: new THREE.IcosahedronGeometry(1, 0),
-  octahedron:  new THREE.OctahedronGeometry(1, 0),
-  dodecahedron: new THREE.DodecahedronGeometry(1, 0),
-  tetrahedron: new THREE.TetrahedronGeometry(1, 0),
-  box:         new THREE.BoxGeometry(1.4, 1.4, 1.4),
-};
-
-// === RENDERER + SCENE ===
+// === RENDERER ===
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 document.getElementById('app').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x050510);
-scene.fog = new THREE.FogExp2(0x050510, 0.0006);
+scene.background = new THREE.Color(BG);
 
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 5000);
-camera.position.set(150, 300, 600);
-camera.lookAt(0, 0, 500);
+const camera = new THREE.PerspectiveCamera(
+  70, window.innerWidth / window.innerHeight, 0.1, 2000
+);
+camera.position.set(0, 4, -2);
+camera.lookAt(0, 4, 10);
 
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.05;
-controls.target.set(0, 0, 500);
+// State
+let tesseract = null;
+let currentPanel = null;
+let flightState = null; // { curve, progress, duration, lookTarget }
+let lastNavTimestamp = 0;
+const clock = new THREE.Clock();
 
-// Track all materials for time updates
-const allMaterials = [];
-const dummy = new THREE.Object3D();
-
-// Store node-to-instance mapping for updates
-let graph = null;
-let nodeMeshes = [];     // { mesh, wireMesh, indices: Map<nodeId, instanceIdx> }
-let edgeLineSegments = null;
-let triangleMesh = null;
-
-async function init() {
-  const res = await fetch('/graph.json');
-  const data = await res.json();
-  console.log(`Loaded: ${data.nodes.length} nodes, ${data.edges.length} edges`);
-
-  graph = new HiveGraph(data);
-  graph.initSimulation();
-  graph.findTriangles();
-  const hubs = graph.getHubs(5);
-  console.log(`Simulation settled. ${graph.triangles.length} triangles, ${hubs.length} hubs`);
-
-  // === GROUP NODES BY GEOMETRY TYPE ===
-  const groups = {};  // geoType -> { theme, nodeIndices[] }
-  graph.nodes.forEach((node, i) => {
-    const theme = getTheme(node.folder);
-    const key = `${theme.geo}__${theme.core}`;
-    if (!groups[key]) groups[key] = { theme, geo: theme.geo, nodes: [] };
-    groups[key].nodes.push({ node, graphIdx: i });
-  });
-
-  // === CREATE INSTANCED MESHES PER GROUP ===
-  nodeMeshes = [];
-  for (const [key, group] of Object.entries(groups)) {
-    const geo = GEOMETRIES[group.geo];
-    const count = group.nodes.length;
-    const { core, shell } = group.theme;
-
-    // Core glow mesh
-    const bioMat = createBioMaterial(core, shell);
-    const mesh = new THREE.InstancedMesh(geo, bioMat, count);
-    mesh.frustumCulled = false;
-    allMaterials.push(bioMat);
-
-    // Wireframe overlay
-    const wireMat = createWireMaterial(core);
-    const wireMesh = new THREE.InstancedMesh(geo, wireMat, count);
-    wireMesh.frustumCulled = false;
-    allMaterials.push(wireMat);
-
-    // Map node IDs to instance indices
-    const indices = new Map();
-    group.nodes.forEach(({ node, graphIdx }, instanceIdx) => {
-      indices.set(node.id, { instanceIdx, graphIdx });
-      const isHub = HUB_NODES.has(node.id);
-      const scale = isHub ? 5 : Math.max(1.2, Math.log2(node.wordCount / 100 + 1) * 0.8);
-      dummy.position.set(node.x, node.y, node.z);
-      dummy.scale.setScalar(scale);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(instanceIdx, dummy.matrix);
-      wireMesh.setMatrixAt(instanceIdx, dummy.matrix);
-    });
-
-    mesh.instanceMatrix.needsUpdate = true;
-    wireMesh.instanceMatrix.needsUpdate = true;
-    scene.add(mesh);
-    scene.add(wireMesh);
-    nodeMeshes.push({ mesh, wireMesh, indices, nodes: group.nodes });
-  }
-  console.log(`Created ${nodeMeshes.length} geometry groups`);
-
-  // === EDGES (curved bezier tendrils) ===
-  buildEdges();
-
-  // === TRIANGLE MESH (emergent sacred geometry) ===
-  buildTriangleMesh();
-
-  // === ENVIRONMENT ===
-  buildEnvironment();
-
-  // === BLOOM POST-PROCESSING ===
-  const { EffectComposer } = await import('three/addons/postprocessing/EffectComposer.js');
-  const { RenderPass } = await import('three/addons/postprocessing/RenderPass.js');
-  const { UnrealBloomPass } = await import('three/addons/postprocessing/UnrealBloomPass.js');
-  const { OutputPass } = await import('three/addons/postprocessing/OutputPass.js');
-
-  const composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(scene, camera));
-  const bloomPass = new UnrealBloomPass(
-    new THREE.Vector2(window.innerWidth, window.innerHeight),
-    1.2, 0.4, 0.7
-  );
-  composer.addPass(bloomPass);
-  composer.addPass(new OutputPass());
-
-  // === KEYBOARD ===
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'r' || e.key === 'R') { camera.position.set(150, 300, 600); controls.target.set(0, 0, 500); }
-    else if (e.key === 't' || e.key === 'T') { camera.position.set(0, 800, 500); controls.target.set(0, 0, 500); }
-    else if (e.key === 's' || e.key === 'S') { camera.position.set(600, 0, 500); controls.target.set(0, 0, 500); }
-  });
-
-  // === RESIZE ===
-  window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    composer.setSize(window.innerWidth, window.innerHeight);
-  });
-
-
-  // === INFO PANEL (DOM overlay) ===
-  const infoPanel = document.createElement('div');
-  infoPanel.id = 'info-panel';
-  infoPanel.innerHTML = '<div class="panel-content"></div>';
-  infoPanel.style.cssText = 'position:fixed;right:-400px;top:0;width:380px;height:100vh;background:rgba(5,5,16,0.92);border-left:1px solid rgba(155,77,255,0.2);padding:24px;overflow-y:auto;transition:right 0.4s ease;z-index:100;font-family:system-ui;color:#e2e8f0;';
-  document.body.appendChild(infoPanel);
-
-  // Focus camera state
-  let focusedNode = null;
-  let cameraAnim = null;
-
-  function showInfoPanel(nodeId) {
-    const node = graph.getNode(nodeId);
-    if (!node) return;
-    const neighbors = graph.getNeighbors(nodeId);
-    const theme = getTheme(node.folder);
-    const pc = infoPanel.querySelector('.panel-content');
-    pc.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <h2 style="font-size:18px;margin:0;color:${theme.core}">${node.title}</h2>
-        <button onclick="document.getElementById('info-panel').style.right='-400px'" style="background:none;border:none;color:#888;font-size:20px;cursor:pointer">&times;</button>
-      </div>
-      <div style="font-size:12px;color:#888;margin-bottom:12px">${node.path}</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
-        <span style="background:rgba(155,77,255,0.15);padding:2px 8px;border-radius:4px;font-size:12px">${node.type}</span>
-        <span style="background:rgba(26,107,255,0.15);padding:2px 8px;border-radius:4px;font-size:12px">${node.folder}</span>
-        <span style="background:rgba(0,230,176,0.15);padding:2px 8px;border-radius:4px;font-size:12px">${node.wordCount} words</span>
-        <span style="background:rgba(255,170,0,0.15);padding:2px 8px;border-radius:4px;font-size:12px">${neighbors.length} links</span>
-      </div>
-      ${node.tags.length ? '<div style="margin-bottom:16px">' + node.tags.map(t => '<span style="color:#9b4dff;font-size:12px;margin-right:8px">#' + t + '</span>').join('') + '</div>' : ''}
-      <div style="font-size:11px;color:#666;margin-bottom:12px">Created: ${node.created}</div>
-      <div style="border-top:1px solid rgba(155,77,255,0.15);padding-top:12px;margin-top:8px">
-        <div style="font-size:13px;color:#9b4dff;margin-bottom:8px">Connected (${neighbors.length})</div>
-        ${neighbors.slice(0, 20).map(nId => {
-          const nn = graph.getNode(nId);
-          return `<div style="padding:4px 0;font-size:12px;cursor:pointer;color:#aaa" onclick="window._focusNode('${nId}')">&#9670; ${nn ? nn.title : nId}</div>`;
-        }).join('')}
-        ${neighbors.length > 20 ? '<div style="color:#666;font-size:11px">+' + (neighbors.length - 20) + ' more</div>' : ''}
-      </div>
-      <a href="obsidian://open?vault=The-Hive&file=${encodeURIComponent(node.path.replace('.md',''))}" style="display:block;margin-top:16px;text-align:center;padding:8px;background:rgba(155,77,255,0.2);border:1px solid rgba(155,77,255,0.3);border-radius:6px;color:#9b4dff;text-decoration:none;font-size:13px">Open in Obsidian</a>
-    `;
-    infoPanel.style.right = '0px';
-  }
-
-  function focusOnNode(nodeId) {
-    const node = graph.getNode(nodeId);
-    if (!node) return;
-    focusedNode = nodeId;
-    showInfoPanel(nodeId);
-    // Spiral camera to node
-    const startPos = camera.position.clone();
-    const targetPos = new THREE.Vector3(node.x + 40, node.y + 30, node.z + 60);
-    const startTarget = controls.target.clone();
-    const endTarget = new THREE.Vector3(node.x, node.y, node.z);
-    let t = 0;
-    cameraAnim = { startPos, targetPos, startTarget, endTarget, t };
-    graph.reheat(0.05);
-  }
-
-  window._focusNode = focusOnNode;
-
-  // Escape to dismiss
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      infoPanel.style.right = '-400px';
-      focusedNode = null;
-    }
-  });
-
-  // === INIT INTERACTION ===
-  initInteraction(camera, renderer, graph, nodeMeshes, controls, focusOnNode);
-
-
-  // === TIMELINE + SEARCH ===
-  let timelineTime = Infinity;
-  let searchFilter = null;
-
-  const timeline = createTimeline(graph, (time, minDate, maxDate) => {
-    timelineTime = time;
-    graph.reheat(0.02);
-  });
-
-  const search = createSearchPanel(graph, (filters) => {
-    searchFilter = filters;
-  });
-
-  // === RENDER LOOP (live simulation) ===
-  const clock = new THREE.Clock();
-
-  function animate() {
-    requestAnimationFrame(animate);
-    const elapsed = clock.getElapsedTime();
-
-    // Tick the live simulation
-    graph.tick();
-
-    // Update all instance matrices from simulation positions
-    for (const group of nodeMeshes) {
-      let changed = false;
-      for (const [nodeId, { instanceIdx, graphIdx }] of group.indices) {
-        const node = graph.nodes[graphIdx];
-        const isHub = HUB_NODES.has(node.id);
-        const baseScale = isHub ? 5 : Math.max(1.2, Math.log2(node.wordCount / 100 + 1) * 0.8);
-        // Visibility: timeline + search filter
-        const nodeTs = (typeof node.created === 'string' && /^\d{4}/.test(node.created))
-          ? new Date(node.created).getTime() : 0;
-        const timeVisible = nodeTs <= timelineTime;
-        const searchVisible = !searchFilter || (
-          searchFilter.folders.has(node.folder) &&
-          (!searchFilter.type || node.type === searchFilter.type) &&
-          (!searchFilter.search || node.id.toLowerCase().includes(searchFilter.search) ||
-           node.title.toLowerCase().includes(searchFilter.search) ||
-           node.tags.some(t => t.toLowerCase().includes(searchFilter.search)))
-        );
-        const visible = timeVisible && searchVisible;
-        const scale = visible ? baseScale : 0.001;
-        dummy.position.set(node.x, node.y, node.z);
-        dummy.scale.setScalar(scale);
-        if (isHub) dummy.rotation.y = elapsed * 0.15;
-        else dummy.rotation.set(0, 0, 0);
-        dummy.updateMatrix();
-        group.mesh.setMatrixAt(instanceIdx, dummy.matrix);
-        group.wireMesh.setMatrixAt(instanceIdx, dummy.matrix);
-        changed = true;
-      }
-      if (changed) {
-        group.mesh.instanceMatrix.needsUpdate = true;
-        group.wireMesh.instanceMatrix.needsUpdate = true;
-      }
-    }
-
-    // Update edge positions from simulation
-    if (edgeLineSegments) {
-      const pos = edgeLineSegments.geometry.attributes.position.array;
-      let idx = 0;
-      for (const edge of graph.edges) {
-        const src = typeof edge.source === 'object' ? edge.source : graph.nodeMap.get(edge.source);
-        const tgt = typeof edge.target === 'object' ? edge.target : graph.nodeMap.get(edge.target);
-        if (!src || !tgt) { idx += 6; continue; }
-        pos[idx++] = src.x; pos[idx++] = src.y; pos[idx++] = src.z;
-        pos[idx++] = tgt.x; pos[idx++] = tgt.y; pos[idx++] = tgt.z;
-      }
-      edgeLineSegments.geometry.attributes.position.needsUpdate = true;
-    }
-
-    // Update triangle mesh positions
-    if (triangleMesh) {
-      const tPos = triangleMesh.geometry.attributes.position.array;
-      let ti = 0;
-      for (const [a, b, c] of graph.triangles) {
-        const na = graph.nodeMap.get(a), nb = graph.nodeMap.get(b), nc = graph.nodeMap.get(c);
-        if (!na || !nb || !nc) { ti += 9; continue; }
-        tPos[ti++]=na.x; tPos[ti++]=na.y; tPos[ti++]=na.z;
-        tPos[ti++]=nb.x; tPos[ti++]=nb.y; tPos[ti++]=nb.z;
-        tPos[ti++]=nc.x; tPos[ti++]=nc.y; tPos[ti++]=nc.z;
-      }
-      triangleMesh.geometry.attributes.position.needsUpdate = true;
-    }
-
-    // Update shader uniforms (breathing)
-    for (const mat of allMaterials) {
-      updateShaderTime(mat, elapsed);
-    }
-
-    // Camera spiral animation
-    if (cameraAnim) {
-      cameraAnim.t += 0.015;
-      const t = Math.min(cameraAnim.t, 1.0);
-      const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-      // Add a slight spiral offset using golden angle
-      const spiral = (1 - ease) * 30;
-      const angle = ease * Math.PI * 1.618;
-      const offsetX = Math.cos(angle) * spiral;
-      const offsetY = Math.sin(angle) * spiral;
-      camera.position.lerpVectors(cameraAnim.startPos, cameraAnim.targetPos, ease);
-      camera.position.x += offsetX;
-      camera.position.y += offsetY;
-      controls.target.lerpVectors(cameraAnim.startTarget, cameraAnim.endTarget, ease);
-      if (t >= 1.0) cameraAnim = null;
-    }
-
-    controls.update();
-    composer.render();
-  }
-  animate();
-  console.log('Hive Viz Phase 2: Sacred Bioluminescence running.');
-}
-
-// === HELPER: Build edges as curved tendrils ===
-function buildEdges() {
+// === BUILD CORRIDOR LINES ===
+function buildCorridors(tesseract) {
   const positions = [];
   const colors = [];
+  const dark = new THREE.Color(LINE_MED);
+  const grid = new THREE.Color(LINE_GRID);
+  const light = new THREE.Color(LINE_LIGHT);
 
-  for (const edge of graph.edges) {
-    const src = typeof edge.source === 'object' ? edge.source : graph.nodeMap.get(edge.source);
-    const tgt = typeof edge.target === 'object' ? edge.target : graph.nodeMap.get(edge.target);
-    if (!src || !tgt) continue;
-    positions.push(src.x, src.y, src.z, tgt.x, tgt.y, tgt.z);
+  for (const [folder, corridor] of tesseract.corridors) {
+    const { dir, yOffset, length } = corridor;
+    const w = corridor.width / 2;
+    const h = corridor.height;
+    const y0 = yOffset;
+    const y1 = yOffset + h;
 
-    const sTheme = getTheme(src.folder);
-    const tTheme = getTheme(tgt.folder);
-    const sc = new THREE.Color(sTheme.core);
-    const tc = new THREE.Color(tTheme.core);
-    colors.push(sc.r, sc.g, sc.b, tc.r, tc.g, tc.b);
+    // Generate cross-sections along corridor length
+    const steps = Math.ceil(length / 3);
+    for (let i = 0; i <= steps; i++) {
+      const t = (i / steps) * length * dir.sign;
+      // 4 vertical corner lines of the cross-section
+      if (dir.axis === 'x') {
+        // Cross-section rectangle at this X position
+        addLine(positions, colors, t, y0, -w, t, y1, -w, dark);
+        addLine(positions, colors, t, y0, w, t, y1, w, dark);
+        addLine(positions, colors, t, y0, -w, t, y0, w, grid);
+        addLine(positions, colors, t, y1, -w, t, y1, w, grid);
+      } else {
+        addLine(positions, colors, -w, y0, t, -w, y1, t, dark);
+        addLine(positions, colors, w, y0, t, w, y1, t, dark);
+        addLine(positions, colors, -w, y0, t, w, y0, t, grid);
+        addLine(positions, colors, -w, y1, t, w, y1, t, grid);
+      }
+    }
+
+    // 4 long edge lines (the corridor rails)
+    const L = length * dir.sign;
+    if (dir.axis === 'x') {
+      addLine(positions, colors, 0, y0, -w, L, y0, -w, dark);
+      addLine(positions, colors, 0, y0, w, L, y0, w, dark);
+      addLine(positions, colors, 0, y1, -w, L, y1, -w, dark);
+      addLine(positions, colors, 0, y1, w, L, y1, w, dark);
+    } else {
+      addLine(positions, colors, -w, y0, 0, -w, y0, L, dark);
+      addLine(positions, colors, w, y0, 0, w, y0, L, dark);
+      addLine(positions, colors, -w, y1, 0, -w, y1, L, dark);
+      addLine(positions, colors, w, y1, 0, w, y1, L, dark);
+    }
   }
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  const mat = new THREE.LineBasicMaterial({
-    vertexColors: true, transparent: true,
-    opacity: 0.12, depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  });
-  edgeLineSegments = new THREE.LineSegments(geo, mat);
-  scene.add(edgeLineSegments);
-  console.log(`Rendered ${graph.edges.length} sacred tendrils`);
+  const mat = new THREE.LineBasicMaterial({ vertexColors: true });
+  const lines = new THREE.LineSegments(geo, mat);
+  scene.add(lines);
+  return lines;
 }
 
-// === HELPER: Build emergent sacred geometry triangles ===
-function buildTriangleMesh() {
-  if (graph.triangles.length === 0) return;
+function addLine(positions, colors, x1,y1,z1, x2,y2,z2, color) {
+  positions.push(x1,y1,z1, x2,y2,z2);
+  colors.push(color.r,color.g,color.b, color.r,color.g,color.b);
+}
 
-  const positions = new Float32Array(graph.triangles.length * 9);
-  const colors = new Float32Array(graph.triangles.length * 9);
-  let idx = 0, cidx = 0;
+// === BUILD PANEL OUTLINES ===
+function buildPanels(tesseract) {
+  const positions = [];
+  const colors = [];
+  const panelColor = new THREE.Color(LINE_DARK);
+  const dimColor = new THREE.Color(LINE_LIGHT);
 
-  for (const [a, b, c] of graph.triangles) {
-    const na = graph.nodeMap.get(a), nb = graph.nodeMap.get(b), nc = graph.nodeMap.get(c);
-    if (!na || !nb || !nc) { idx += 9; cidx += 9; continue; }
-    positions[idx++]=na.x; positions[idx++]=na.y; positions[idx++]=na.z;
-    positions[idx++]=nb.x; positions[idx++]=nb.y; positions[idx++]=nb.z;
-    positions[idx++]=nc.x; positions[idx++]=nc.y; positions[idx++]=nc.z;
+  for (const [id, panel] of tesseract.panels) {
+    const { pos, normal } = panel;
+    const pw = PANEL_WIDTH / 2;
+    const ph = PANEL_HEIGHT / 2;
+    const c = panel.linkCount > 5 ? panelColor : dimColor;
 
-    // Average color from three nodes' folder themes
-    const ca = new THREE.Color(getTheme(na.folder).core);
-    const cb = new THREE.Color(getTheme(nb.folder).core);
-    const cc = new THREE.Color(getTheme(nc.folder).core);
-    const avg = new THREE.Color().addColors(ca, cb).add(cc).multiplyScalar(1/3);
-    for (let v = 0; v < 3; v++) {
-      colors[cidx++] = avg.r; colors[cidx++] = avg.g; colors[cidx++] = avg.b;
+    // Panel rectangle on the wall
+    // If wall faces Z: panel spans X and Y
+    // If wall faces X: panel spans Z and Y
+    if (normal.z !== 0) {
+      addLine(positions,colors, pos.x-pw,pos.y-ph,pos.z, pos.x+pw,pos.y-ph,pos.z, c);
+      addLine(positions,colors, pos.x+pw,pos.y-ph,pos.z, pos.x+pw,pos.y+ph,pos.z, c);
+      addLine(positions,colors, pos.x+pw,pos.y+ph,pos.z, pos.x-pw,pos.y+ph,pos.z, c);
+      addLine(positions,colors, pos.x-pw,pos.y+ph,pos.z, pos.x-pw,pos.y-ph,pos.z, c);
+    } else {
+      addLine(positions,colors, pos.x,pos.y-ph,pos.z-pw, pos.x,pos.y-ph,pos.z+pw, c);
+      addLine(positions,colors, pos.x,pos.y-ph,pos.z+pw, pos.x,pos.y+ph,pos.z+pw, c);
+      addLine(positions,colors, pos.x,pos.y+ph,pos.z+pw, pos.x,pos.y+ph,pos.z-pw, c);
+      addLine(positions,colors, pos.x,pos.y+ph,pos.z-pw, pos.x,pos.y-ph,pos.z-pw, c);
     }
   }
 
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  const mat = new THREE.MeshBasicMaterial({
-    vertexColors: true, transparent: true,
-    opacity: 0.06, side: THREE.DoubleSide,
-    depthWrite: false, blending: THREE.AdditiveBlending,
-  });
-  triangleMesh = new THREE.Mesh(geo, mat);
-  scene.add(triangleMesh);
-  console.log(`Rendered ${graph.triangles.length} sacred geometry triangles`);
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  const mat = new THREE.LineBasicMaterial({ vertexColors: true });
+  const lines = new THREE.LineSegments(geo, mat);
+  scene.add(lines);
+  return lines;
 }
 
-// === HELPER: Sacred environment (hex particles + Flower of Life grid) ===
-function buildEnvironment() {
-  // Hexagonal pollen particles
-  const particleCount = 3000;
-  const pPos = new Float32Array(particleCount * 3);
-  const pColors = new Float32Array(particleCount * 3);
-  const biolumHues = [
-    new THREE.Color('#1a6bff'), new THREE.Color('#9b4dff'),
-    new THREE.Color('#00e6b0'), new THREE.Color('#00ff66'),
-    new THREE.Color('#00ccff'), new THREE.Color('#ffaa00'),
-  ];
+const PANEL_WIDTH = 2;
+const PANEL_HEIGHT = 2.5;
 
-  for (let i = 0; i < particleCount; i++) {
-    pPos[i*3]   = (Math.random() - 0.5) * 2500;
-    pPos[i*3+1] = (Math.random() - 0.5) * 2500;
-    pPos[i*3+2] = Math.random() * 1200 - 100;
-    const c = biolumHues[Math.floor(Math.random() * biolumHues.length)];
-    pColors[i*3] = c.r * 0.3;
-    pColors[i*3+1] = c.g * 0.3;
-    pColors[i*3+2] = c.b * 0.3;
+// === CAMERA FLIGHT SYSTEM ===
+function startFlight(fromId, toId) {
+  const path = tesseract.getFlightPath(fromId, toId);
+  if (!path || path.waypoints.length < 2) return;
+
+  const points = path.waypoints.map(p => new THREE.Vector3(p.x, p.y, p.z));
+  const curve = new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.3);
+
+  // Calculate duration based on distance
+  const totalDist = curve.getLength();
+  const duration = Math.max(2.0, Math.min(6.0, totalDist / 30));
+
+  flightState = {
+    curve,
+    progress: 0,
+    duration,
+    targetPanel: path.to,
+    startTime: clock.getElapsedTime()
+  };
+  currentPanel = toId;
+  hideContentPanel();
+}
+
+function updateFlight(elapsed) {
+  if (!flightState) return;
+  const t = (elapsed - flightState.startTime) / flightState.duration;
+  if (t >= 1.0) {
+    // Arrived
+    const finalPos = flightState.curve.getPoint(1.0);
+    camera.position.copy(finalPos);
+    // Look at the panel
+    const panel = flightState.targetPanel;
+    const lookAt = new THREE.Vector3(
+      panel.pos.x - panel.normal.x * 0.5,
+      panel.pos.y,
+      panel.pos.z - panel.normal.z * 0.5
+    );
+    camera.lookAt(lookAt);
+    flightState = null;
+    showContentPanel(currentPanel);
+    return;
   }
+  // Ease in-out cubic
+  const ease = t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2, 3) / 2;
+  const pos = flightState.curve.getPoint(ease);
+  camera.position.copy(pos);
+  // Look ahead on the curve
+  const lookAhead = Math.min(ease + 0.05, 1.0);
+  const lookTarget = flightState.curve.getPoint(lookAhead);
+  camera.lookAt(lookTarget);
+}
 
-  const pGeo = new THREE.BufferGeometry();
-  pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
-  pGeo.setAttribute('color', new THREE.BufferAttribute(pColors, 3));
-  const pMat = new THREE.PointsMaterial({
-    size: 0.8, vertexColors: true, transparent: true,
-    opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false,
-  });
-  scene.add(new THREE.Points(pGeo, pMat));
+// === CONTENT PANEL (wall transform) ===
+const contentEl = document.createElement('div');
+contentEl.id = 'content-panel';
+contentEl.style.cssText = `position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:500px;max-height:70vh;background:rgba(240,240,240,0.96);
+  border:1px solid #111;padding:32px;font-family:'Courier New',monospace;
+  color:#111;opacity:0;pointer-events:none;transition:opacity 0.5s;
+  overflow-y:auto;z-index:100;`;
+document.body.appendChild(contentEl);
 
-  // Flower of Life background grid (subtle, vast, slowly rotating)
-  const flowerGroup = new THREE.Group();
-  const ringGeo = new THREE.RingGeometry(48, 50, 6); // hexagonal ring
-  const ringMat = new THREE.MeshBasicMaterial({
-    color: 0x9b4dff, transparent: true, opacity: 0.025,
-    side: THREE.DoubleSide, depthWrite: false,
-  });
+function showContentPanel(nodeId) {
+  const panel = tesseract.getPanel(nodeId);
+  if (!panel) return;
+  const neighbors = tesseract.getNeighbors(nodeId);
+  contentEl.innerHTML = `
+    <div style="font-size:22px;font-weight:bold;margin-bottom:12px;letter-spacing:1px">${panel.title}</div>
+    <div style="font-size:11px;color:#888;margin-bottom:16px;letter-spacing:2px">${panel.path}</div>
+    <div style="display:flex;gap:12px;margin-bottom:16px;font-size:12px">
+      <span style="border:1px solid #888;padding:2px 8px">${panel.type}</span>
+      <span style="border:1px solid #888;padding:2px 8px">${panel.folder}</span>
+      <span style="border:1px solid #888;padding:2px 8px">${panel.wordCount}w</span>
+      <span style="border:1px solid #888;padding:2px 8px">${panel.linkCount} links</span>
+    </div>
+    <div style="font-size:11px;color:#888;margin-bottom:8px">${panel.created}</div>
+    ${panel.tags.length ? '<div style="margin-bottom:16px">' +
+      panel.tags.map(t => `<span style="font-size:11px;color:#555;margin-right:8px">#${t}</span>`).join('') + '</div>' : ''}
+    <div style="border-top:1px solid #ddd;padding-top:12px;margin-top:12px">
+      <div style="font-size:12px;color:#888;margin-bottom:8px;letter-spacing:1px">CONNECTED</div>
+      ${neighbors.slice(0,15).map(n =>
+        `<div style="padding:3px 0;font-size:12px;cursor:pointer;color:#333"
+          onclick="window._navigate('${n.id}')">${n.title}</div>`
+      ).join('')}
+      ${neighbors.length > 15 ? `<div style="color:#888;font-size:11px">+${neighbors.length-15} more</div>` : ''}
+    </div>
+    <a href="obsidian://open?vault=The-Hive&file=${encodeURIComponent(panel.path.replace('.md',''))}"
+      style="display:block;margin-top:16px;text-align:center;padding:8px;border:1px solid #111;
+      color:#111;text-decoration:none;font-size:12px;letter-spacing:1px">OPEN IN OBSIDIAN</a>
+  `;
+  contentEl.style.opacity = '1';
+  contentEl.style.pointerEvents = 'auto';
+}
 
-  // Create a grid of hexagonal rings
-  const gridSize = 6;
-  const spacing = 90;
-  for (let gx = -gridSize; gx <= gridSize; gx++) {
-    for (let gy = -gridSize; gy <= gridSize; gy++) {
-      const ring = new THREE.Mesh(ringGeo, ringMat);
-      ring.position.set(
-        gx * spacing + (gy % 2 ? spacing / 2 : 0),
-        gy * spacing * 0.866,
-        500 // center of the Z-time axis
-      );
-      ring.rotation.z = Math.PI / 6;
-      flowerGroup.add(ring);
+function hideContentPanel() {
+  contentEl.style.opacity = '0';
+  contentEl.style.pointerEvents = 'none';
+}
+
+// Navigation handler (called from content panel links and from Walt)
+window._navigate = function(targetId) {
+  const fromId = currentPanel || tesseract.panels.keys().next().value;
+  startFlight(fromId, targetId);
+};
+
+// === NAV COMMAND POLLING (Walt control channel) ===
+async function pollNavCommand() {
+  try {
+    const res = await fetch('/nav-command.json?t=' + Date.now());
+    if (!res.ok) return;
+    const cmd = await res.json();
+    if (cmd.timestamp && cmd.timestamp !== lastNavTimestamp && cmd.target) {
+      lastNavTimestamp = cmd.timestamp;
+      // Search for the target
+      const results = tesseract.search(cmd.target);
+      if (results.length > 0) {
+        console.log(`Nav command: flying to "${results[0].title}"`);
+        window._navigate(results[0].id);
+      } else {
+        console.warn(`Nav command: "${cmd.target}" not found`);
+      }
     }
+  } catch(e) { /* nav-command.json doesn't exist yet, that's fine */ }
+}
+
+// === INIT ===
+async function init() {
+  const res = await fetch('/graph.json');
+  const data = await res.json();
+  console.log(`Loaded ${data.nodes.length} nodes, ${data.edges.length} edges`);
+
+  tesseract = new Tesseract(data);
+  console.log(`Built ${tesseract.corridors.size} corridors, ${tesseract.panels.size} panels`);
+
+  buildCorridors(tesseract);
+  buildPanels(tesseract);
+
+  // Start camera at the entrance to the first corridor
+  const firstPanel = tesseract.panels.values().next().value;
+  if (firstPanel) {
+    camera.position.set(0, 4, -4);
+    camera.lookAt(0, 4, 10);
+    currentPanel = firstPanel.id;
   }
 
-  flowerGroup.position.z = -200;
-  flowerGroup.scale.setScalar(3);
-  scene.add(flowerGroup);
-  console.log('Sacred environment loaded');
+  // Poll nav commands every 500ms
+  setInterval(pollNavCommand, 500);
+
+  // Keyboard
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') hideContentPanel();
+  });
+
+  // Click background to dismiss content
+  renderer.domElement.addEventListener('click', () => {
+    if (contentEl.style.opacity === '1') hideContentPanel();
+  });
+
+  // Resize
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // === ANIMATION LOOP ===
+  function animate() {
+    requestAnimationFrame(animate);
+    const elapsed = clock.getElapsedTime();
+    updateFlight(elapsed);
+    renderer.render(scene, camera);
+  }
+  animate();
+  console.log('The Tesseract is alive.');
 }
 
 init().catch(e => console.error('Init failed:', e));
