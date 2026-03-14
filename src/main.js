@@ -202,7 +202,7 @@ async function init() {
         <div style="font-size:13px;color:#9b4dff;margin-bottom:8px">Connected (${neighbors.length})</div>
         ${neighbors.slice(0, 20).map(nId => {
           const nn = graph.getNode(nId);
-          return '<div style="padding:4px 0;font-size:12px;cursor:pointer;color:#aaa" onclick="window._focusNode('' + nId + '')">◆ ' + (nn ? nn.title : nId) + '</div>';
+          return `<div style="padding:4px 0;font-size:12px;cursor:pointer;color:#aaa" onclick="window._focusNode('${nId}')">&#9670; ${nn ? nn.title : nId}</div>`;
         }).join('')}
         ${neighbors.length > 20 ? '<div style="color:#666;font-size:11px">+' + (neighbors.length - 20) + ' more</div>' : ''}
       </div>
