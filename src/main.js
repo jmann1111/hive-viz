@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Tesseract } from './core/tesseract.js';
-import { Navigator } from './core/navigator.js';
+import { buildTrack } from './core/navigator.js';
 
 // ============ RENDERER ============
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -17,7 +17,6 @@ camera.position.set(0, 6, -5);
 camera.lookAt(0, 6, 20);
 
 let tesseract = null;
-let nav = null;
 let currentPanel = null;
 let flightState = null;
 let lastNavTimestamp = 0;
@@ -336,125 +335,88 @@ window._launchTo = function(id) {
 };
 window._navigate = function(id) { navigateTo(id); };
 
+// Heading index to radians: 0=+Z, 1=+X, 2=-Z, 3=-X
+const H2RAD = [0, Math.PI/2, Math.PI, Math.PI*1.5];
+const H2DIR = [{dx:0,dz:1},{dx:1,dz:0},{dx:0,dz:-1},{dx:-1,dz:0}];
+
 function navigateTo(targetId) {
   const panel = tesseract.getPanel(targetId);
   if (!panel) return;
   window.hideContentPanel();
   currentPanel = targetId;
 
-  // Use Navigator to plan axis-aligned corridor route
-  const plan = nav.plan(camera.position, targetId);
-  if (!plan || !plan.segments.length) {
-    console.warn('No plan, teleporting');
-    camera.position.set(panel.pos.x, panel.pos.y + 2, panel.pos.z);
-    camera.lookAt(panel.pos.x, panel.pos.y, panel.pos.z);
-    showContentPanel(targetId);
-    return;
-  }
-
-  flightState = {
-    plan,
-    elapsed: 0,
-    lookTarget: { x: panel.pos.x, y: panel.pos.y, z: panel.pos.z },
-    done: false,
+  const destPos = {
+    x: panel.pos.x + (panel.normal.x || 0) * 5,
+    y: panel.pos.y + 1.8,
+    z: panel.pos.z + (panel.normal.z || 0) * 5,
   };
-  // Init smooth look to current camera direction
-  const fwd = new THREE.Vector3(0,0,1).applyQuaternion(camera.quaternion);
-  smoothLookX = camera.position.x + fwd.x * 20;
-  smoothLookY = camera.position.y + fwd.y * 20;
-  smoothLookZ = camera.position.z + fwd.z * 20;
+  const destLook = { x: panel.pos.x, y: panel.pos.y, z: panel.pos.z };
+
+  const track = buildTrack(camera.position, destPos, destLook, targetId);
+  flightState = { track, elapsed: 0, done: false };
+
+  // Init smooth look to current forward
+  const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(camera.quaternion);
+  smoothLookX = camera.position.x + fwd.x * 30;
+  smoothLookY = camera.position.y + fwd.y * 30;
+  smoothLookZ = camera.position.z + fwd.z * 30;
 }
 
-// Segment easing: accel in first 20%, cruise, decel in last 20%
-function segEase(t) {
-  if (t < 0.2) return 2.5 * t * t;                    // quadratic accel
-  if (t > 0.8) { const r = (1-t)/0.2; return 1 - 0.5*r*r; } // quadratic decel
-  return 0.1 + (t - 0.2) * (0.8 / 0.6);              // linear cruise
-}
-
-// Frame-rate independent smooth look target
 let smoothLookX = 0, smoothLookY = 6, smoothLookZ = 20;
 
 function updateFlight(dt) {
   if (!flightState || flightState.done) return;
   flightState.elapsed += dt;
+  const { track, elapsed } = flightState;
 
-  const { plan, lookTarget } = flightState;
-  const t = flightState.elapsed;
-
-  // Find which segment we're in
-  let seg = null, segT = 0;
-  for (const s of plan.segments) {
-    if (t < s.startTime + s.duration) {
-      seg = s;
-      segT = (t - s.startTime) / s.duration;
-      break;
-    }
-  }
-
-  if (!seg) {
-    // All segments complete
-    flightState.done = true;
-    camera.lookAt(lookTarget.x, lookTarget.y, lookTarget.z);
+  // Past the end?
+  if (elapsed >= track[track.length - 1].t) {
+    const last = track[track.length - 1];
+    camera.position.set(last.x, last.y, last.z);
+    camera.lookAt(last.lx, last.ly, last.lz);
     camera.rotation.z = 0;
+    flightState.done = true;
     showContentPanel(currentPanel);
     return;
   }
 
-  const e = Math.max(0, Math.min(1, segT));
-  let px, py, pz, idealLookX, idealLookY, idealLookZ, roll = 0;
-
-  if (seg.type === 'straight') {
-    const ease = segEase(e);
-    px = seg.from.x + (seg.to.x - seg.from.x) * ease;
-    py = seg.from.y + (seg.to.y - seg.from.y) * ease;
-    pz = seg.from.z + (seg.to.z - seg.from.z) * ease;
-    // Look down the corridor (well ahead)
-    idealLookX = seg.to.x; idealLookY = seg.to.y; idealLookZ = seg.to.z;
-  } else if (seg.type === 'turn') {
-    px = seg.pos.x; py = seg.pos.y; pz = seg.pos.z;
-    // Smooth heading interpolation
-    let dH = seg.toHeading - seg.fromHeading;
-    while (dH > Math.PI) dH -= Math.PI * 2;
-    while (dH < -Math.PI) dH += Math.PI * 2;
-    const smoothE = e * e * (3 - 2 * e); // smoothstep
-    const heading = seg.fromHeading + dH * smoothE;
-    idealLookX = px + Math.sin(heading) * 30;
-    idealLookY = py;
-    idealLookZ = pz + Math.cos(heading) * 30;
-    // Bank into the turn
-    roll = -dH * 0.2 * Math.sin(e * Math.PI);
-  } else if (seg.type === 'vertical') {
-    px = seg.pos.x; pz = seg.pos.z;
-    const smoothE = e * e * (3 - 2 * e);
-    py = seg.fromY + (seg.toY - seg.fromY) * smoothE;
-    // Look up or down during vertical travel
-    const lookAheadY = py + (seg.toY > seg.fromY ? 15 : -15);
-    idealLookX = px; idealLookY = lookAheadY; idealLookZ = pz;
-  } else if (seg.type === 'arrive') {
-    const smoothE = e * e * (3 - 2 * e);
-    px = seg.from.x + (seg.to.x - seg.from.x) * smoothE;
-    py = seg.from.y + (seg.to.y - seg.from.y) * smoothE;
-    pz = seg.from.z + (seg.to.z - seg.from.z) * smoothE;
-    // Lock onto panel
-    idealLookX = seg.lookTarget.x;
-    idealLookY = seg.lookTarget.y;
-    idealLookZ = seg.lookTarget.z;
+  // Find bracketing keyframes
+  let a = track[0], b = track[1];
+  for (let i = 0; i < track.length - 1; i++) {
+    if (elapsed >= track[i].t && elapsed < track[i + 1].t) {
+      a = track[i]; b = track[i + 1]; break;
+    }
   }
 
+  // Interpolation factor (0 to 1 between keyframes)
+  const segDur = b.t - a.t;
+  const t = segDur > 0 ? (elapsed - a.t) / segDur : 0;
+
+  // Smoothstep for position (no jerk at keyframe boundaries)
+  const e = t * t * (3 - 2 * t);
+
+  // Position: direct lerp between keyframes
+  const px = a.x + (b.x - a.x) * e;
+  const py = a.y + (b.y - a.y) * e;
+  const pz = a.z + (b.z - a.z) * e;
   camera.position.set(px, py, pz);
 
-  // Frame-rate independent smooth look (no jerks ever)
+  // Ideal look target: lerp between keyframe look targets
+  const ilx = a.lx + (b.lx - a.lx) * e;
+  const ily = a.ly + (b.ly - a.ly) * e;
+  const ilz = a.lz + (b.lz - a.lz) * e;
+
+  // Frame-rate independent smooth filter (THE butter)
   const lf = 1 - Math.exp(-6 * Math.min(dt, 0.05));
-  smoothLookX += (idealLookX - smoothLookX) * lf;
-  smoothLookY += (idealLookY - smoothLookY) * lf;
-  smoothLookZ += (idealLookZ - smoothLookZ) * lf;
+  smoothLookX += (ilx - smoothLookX) * lf;
+  smoothLookY += (ily - smoothLookY) * lf;
+  smoothLookZ += (ilz - smoothLookZ) * lf;
   camera.lookAt(smoothLookX, smoothLookY, smoothLookZ);
 
-  // Frame-rate independent smooth roll
-  const rlf = 1 - Math.exp(-4 * Math.min(dt, 0.05));
-  camera.rotation.z += (roll - camera.rotation.z) * rlf;
+  // Zero roll (we can add banking later once the base track works)
+  camera.rotation.z = 0;
 }
+
 // ============ CONTENT PANEL ============
 const contentEl = document.createElement('div');
 contentEl.id = 'content-panel';
@@ -493,7 +455,6 @@ async function init() {
   const res = await fetch('/graph.json');
   const data = await res.json();
   tesseract = new Tesseract(data);
-  nav = new Navigator(tesseract);
   console.log('Tesseract:', tesseract.corridors.size, 'corridors,', tesseract.panels.size, 'panels');
 
   buildWorld();
