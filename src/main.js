@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { HiveGraph } from './core/graph.js';
 import { createBioMaterial, createWireMaterial, updateShaderTime } from './rendering/shaders.js';
+import { initInteraction } from './interaction.js';
 
 // === SACRED GEOMETRY CONFIG ===
 const FOLDER_THEME = {
@@ -163,6 +164,79 @@ async function init() {
     composer.setSize(window.innerWidth, window.innerHeight);
   });
 
+
+  // === INFO PANEL (DOM overlay) ===
+  const infoPanel = document.createElement('div');
+  infoPanel.id = 'info-panel';
+  infoPanel.innerHTML = '<div class="panel-content"></div>';
+  infoPanel.style.cssText = 'position:fixed;right:-400px;top:0;width:380px;height:100vh;background:rgba(5,5,16,0.92);border-left:1px solid rgba(155,77,255,0.2);padding:24px;overflow-y:auto;transition:right 0.4s ease;z-index:100;font-family:system-ui;color:#e2e8f0;';
+  document.body.appendChild(infoPanel);
+
+  // Focus camera state
+  let focusedNode = null;
+  let cameraAnim = null;
+
+  function showInfoPanel(nodeId) {
+    const node = graph.getNode(nodeId);
+    if (!node) return;
+    const neighbors = graph.getNeighbors(nodeId);
+    const theme = getTheme(node.folder);
+    const pc = infoPanel.querySelector('.panel-content');
+    pc.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h2 style="font-size:18px;margin:0;color:${theme.core}">${node.title}</h2>
+        <button onclick="document.getElementById('info-panel').style.right='-400px'" style="background:none;border:none;color:#888;font-size:20px;cursor:pointer">&times;</button>
+      </div>
+      <div style="font-size:12px;color:#888;margin-bottom:12px">${node.path}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+        <span style="background:rgba(155,77,255,0.15);padding:2px 8px;border-radius:4px;font-size:12px">${node.type}</span>
+        <span style="background:rgba(26,107,255,0.15);padding:2px 8px;border-radius:4px;font-size:12px">${node.folder}</span>
+        <span style="background:rgba(0,230,176,0.15);padding:2px 8px;border-radius:4px;font-size:12px">${node.wordCount} words</span>
+        <span style="background:rgba(255,170,0,0.15);padding:2px 8px;border-radius:4px;font-size:12px">${neighbors.length} links</span>
+      </div>
+      ${node.tags.length ? '<div style="margin-bottom:16px">' + node.tags.map(t => '<span style="color:#9b4dff;font-size:12px;margin-right:8px">#' + t + '</span>').join('') + '</div>' : ''}
+      <div style="font-size:11px;color:#666;margin-bottom:12px">Created: ${node.created}</div>
+      <div style="border-top:1px solid rgba(155,77,255,0.15);padding-top:12px;margin-top:8px">
+        <div style="font-size:13px;color:#9b4dff;margin-bottom:8px">Connected (${neighbors.length})</div>
+        ${neighbors.slice(0, 20).map(nId => {
+          const nn = graph.getNode(nId);
+          return '<div style="padding:4px 0;font-size:12px;cursor:pointer;color:#aaa" onclick="window._focusNode('' + nId + '')">◆ ' + (nn ? nn.title : nId) + '</div>';
+        }).join('')}
+        ${neighbors.length > 20 ? '<div style="color:#666;font-size:11px">+' + (neighbors.length - 20) + ' more</div>' : ''}
+      </div>
+      <a href="obsidian://open?vault=The-Hive&file=${encodeURIComponent(node.path.replace('.md',''))}" style="display:block;margin-top:16px;text-align:center;padding:8px;background:rgba(155,77,255,0.2);border:1px solid rgba(155,77,255,0.3);border-radius:6px;color:#9b4dff;text-decoration:none;font-size:13px">Open in Obsidian</a>
+    `;
+    infoPanel.style.right = '0px';
+  }
+
+  function focusOnNode(nodeId) {
+    const node = graph.getNode(nodeId);
+    if (!node) return;
+    focusedNode = nodeId;
+    showInfoPanel(nodeId);
+    // Spiral camera to node
+    const startPos = camera.position.clone();
+    const targetPos = new THREE.Vector3(node.x + 40, node.y + 30, node.z + 60);
+    const startTarget = controls.target.clone();
+    const endTarget = new THREE.Vector3(node.x, node.y, node.z);
+    let t = 0;
+    cameraAnim = { startPos, targetPos, startTarget, endTarget, t };
+    graph.reheat(0.05);
+  }
+
+  window._focusNode = focusOnNode;
+
+  // Escape to dismiss
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      infoPanel.style.right = '-400px';
+      focusedNode = null;
+    }
+  });
+
+  // === INIT INTERACTION ===
+  initInteraction(camera, renderer, graph, nodeMeshes, controls, focusOnNode);
+
   // === RENDER LOOP (live simulation) ===
   const clock = new THREE.Clock();
 
@@ -226,6 +300,23 @@ async function init() {
     // Update shader uniforms (breathing)
     for (const mat of allMaterials) {
       updateShaderTime(mat, elapsed);
+    }
+
+    // Camera spiral animation
+    if (cameraAnim) {
+      cameraAnim.t += 0.015;
+      const t = Math.min(cameraAnim.t, 1.0);
+      const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      // Add a slight spiral offset using golden angle
+      const spiral = (1 - ease) * 30;
+      const angle = ease * Math.PI * 1.618;
+      const offsetX = Math.cos(angle) * spiral;
+      const offsetY = Math.sin(angle) * spiral;
+      camera.position.lerpVectors(cameraAnim.startPos, cameraAnim.targetPos, ease);
+      camera.position.x += offsetX;
+      camera.position.y += offsetY;
+      controls.target.lerpVectors(cameraAnim.startTarget, cameraAnim.endTarget, ease);
+      if (t >= 1.0) cameraAnim = null;
     }
 
     controls.update();
