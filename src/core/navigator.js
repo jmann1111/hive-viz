@@ -1,109 +1,61 @@
-// Track-based flight. Dead simple. A track = array of keyframes.
-// Camera lerps between them. Smooth look filter handles the rest.
-// Keyframe: { t, x, y, z, lx, ly, lz }
+// Pre-baked frame array. Two overlapping smoothsteps = curved corner.
+// Every position computed from continuous functions. Zero jumps possible.
+// Player just reads frames[i]. Look direction = frames[i+5] - frames[i].
 
-export function buildTrack(fromPos, destPos, destLook, targetId) {
-  const h = targetId.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-  const DIR = [{ x: 0, z: 1 }, { x: 1, z: 0 }, { x: 0, z: -1 }, { x: -1, z: 0 }];
-  let heading = h % 4;
-  let cx = fromPos.x, cy = fromPos.y, cz = fromPos.z;
-  let time = 0;
-  const kf = [];
+export function generateFlight(fromPos, destPos, destLook) {
+  const FPS = 60;
+  const dx = destPos.x - fromPos.x;
+  const dz = destPos.z - fromPos.z;
+  const dy = destPos.y - fromPos.y;
+  const dist = Math.sqrt(dx*dx + dz*dz + dy*dy);
 
-  function look() {
-    const d = DIR[heading];
-    return { lx: cx + d.x * 60, ly: cy, lz: cz + d.z * 60 };
+  // Duration: 4-10 seconds based on distance
+  const totalTime = Math.max(4, Math.min(10, dist / 50 + 3));
+  const totalFrames = Math.ceil(totalTime * FPS);
+
+  // Smoothstep
+  function ss(t) { const c = Math.max(0, Math.min(1, t)); return c*c*(3-2*c); }
+
+  // Which axis is primary (longer travel)?
+  const primaryIsX = Math.abs(dx) >= Math.abs(dz);
+
+  // Two overlapping smoothsteps:
+  // Primary axis: 0% to 60% of total time
+  // Secondary axis: 40% to 100% of total time
+  // Overlap (40-60%) = the natural curved corner
+  const frames = [];
+  for (let i = 0; i <= totalFrames; i++) {
+    const tNorm = i / totalFrames; // 0 to 1
+
+    // Primary: done by 60% mark
+    const priT = ss(Math.min(1, tNorm / 0.6));
+    // Secondary: starts at 40%, done by 100%
+    const secT = ss(Math.max(0, (tNorm - 0.4) / 0.6));
+    // Y: smooth arc with overall travel
+    const yT = ss(tNorm);
+    const yArc = Math.sin(tNorm * Math.PI) * Math.min(8, dist * 0.04);
+
+    let x, z;
+    if (primaryIsX) {
+      x = fromPos.x + dx * priT;
+      z = fromPos.z + dz * secT;
+    } else {
+      x = fromPos.x + dx * secT;
+      z = fromPos.z + dz * priT;
+    }
+    const y = fromPos.y + dy * yT + yArc;
+
+    frames.push({ x, y, z });
   }
 
-  function addKF() {
-    const l = look();
-    kf.push({ t: time, x: cx, y: cy, z: cz, lx: l.lx, ly: l.ly, lz: l.lz });
-  }
+  // Last frame is exactly at destination (no floating point drift)
+  frames[frames.length - 1] = {
+    x: destPos.x, y: destPos.y, z: destPos.z
+  };
 
-  function forward(dist, sec) {
-    const d = DIR[heading];
-    cx += d.x * dist; cz += d.z * dist;
-    time += sec;
-    addKF();
-  }
-
-  function turnRight(sec) {
-    // Advance 5 units in old direction, turn, advance 5 in new
-    const dOld = DIR[heading];
-    cx += dOld.x * 5; cz += dOld.z * 5;
-    time += sec * 0.3;
-    heading = (heading + 1) % 4;
-    const dNew = DIR[heading];
-    cx += dNew.x * 5; cz += dNew.z * 5;
-    time += sec * 0.7;
-    addKF();
-  }
-
-  function turnLeft(sec) {
-    const dOld = DIR[heading];
-    cx += dOld.x * 5; cz += dOld.z * 5;
-    time += sec * 0.3;
-    heading = (heading + 3) % 4;
-    const dNew = DIR[heading];
-    cx += dNew.x * 5; cz += dNew.z * 5;
-    time += sec * 0.7;
-    addKF();
-  }
-
-  function drop(dist, sec) {
-    cy -= dist; time += sec; addKF();
-  }
-  function climb(dist, sec) {
-    cy += dist; time += sec; addKF();
-  }
-
-  // === START KEYFRAME ===
-  addKF();
-
-  // === BUILD TRACK VARIANT ===
-  const variant = h % 4;
-
-  if (variant === 0) {
-    // The Classic: straight, turn right, straight, drop, straight
-    forward(80, 1.5);
-    turnRight(0.7);
-    forward(100, 1.8);
-    drop(20, 0.6);
-    forward(60, 1.2);
-  } else if (variant === 1) {
-    // The Snake: short straights with alternating turns
-    forward(50, 1.0);
-    turnLeft(0.6);
-    forward(60, 1.2);
-    turnRight(0.6);
-    forward(80, 1.5);
-    climb(20, 0.6);
-    forward(40, 0.8);
-  } else if (variant === 2) {
-    // The Dive: long straight, drop, turn, long straight
-    forward(120, 2.0);
-    drop(24, 0.7);
-    turnRight(0.6);
-    forward(100, 1.8);
-    turnLeft(0.6);
-    forward(50, 1.0);
-  } else {
-    // The Elevator: straight, climb, turn, straight, drop, straight
-    forward(60, 1.2);
-    climb(24, 0.7);
-    turnRight(0.6);
-    forward(80, 1.5);
-    drop(24, 0.7);
-    forward(60, 1.2);
-  }
-
-  // === FINAL APPROACH: lerp to actual destination over 2 seconds ===
-  cx = destPos.x; cy = destPos.y; cz = destPos.z;
-  time += 2.0;
-  kf.push({
-    t: time, x: cx, y: cy, z: cz,
-    lx: destLook.x, ly: destLook.y, lz: destLook.z
-  });
-
-  return kf;
+  return {
+    frames,
+    destLook, // player uses this for final ~30 frames
+    totalFrames: frames.length,
+  };
 }

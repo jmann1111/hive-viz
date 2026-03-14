@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Tesseract } from './core/tesseract.js';
-import { buildTrack } from './core/navigator.js';
+import { generateFlight } from './core/navigator.js';
 
 // ============ RENDERER ============
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -336,87 +336,67 @@ window._launchTo = function(id) {
 window._navigate = function(id) { navigateTo(id); };
 
 // Heading index to radians: 0=+Z, 1=+X, 2=-Z, 3=-X
-const H2RAD = [0, Math.PI/2, Math.PI, Math.PI*1.5];
-const H2DIR = [{dx:0,dz:1},{dx:1,dz:0},{dx:0,dz:-1},{dx:-1,dz:0}];
-
 function navigateTo(targetId) {
   const panel = tesseract.getPanel(targetId);
   if (!panel) return;
   window.hideContentPanel();
   currentPanel = targetId;
-
   const destPos = {
     x: panel.pos.x + (panel.normal.x || 0) * 5,
     y: panel.pos.y + 1.8,
     z: panel.pos.z + (panel.normal.z || 0) * 5,
   };
   const destLook = { x: panel.pos.x, y: panel.pos.y, z: panel.pos.z };
-
-  const track = buildTrack(camera.position, destPos, destLook, targetId);
-  flightState = { track, elapsed: 0, done: false };
-
-  // Init smooth look to current forward
-  const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(camera.quaternion);
-  smoothLookX = camera.position.x + fwd.x * 30;
-  smoothLookY = camera.position.y + fwd.y * 30;
-  smoothLookZ = camera.position.z + fwd.z * 30;
+  const flight = generateFlight(camera.position, destPos, destLook);
+  flightState = { flight, frameFloat: 0, done: false };
+  console.log('Flight:', flight.totalFrames, 'frames');
 }
-
-let smoothLookX = 0, smoothLookY = 6, smoothLookZ = 20;
 
 function updateFlight(dt) {
   if (!flightState || flightState.done) return;
-  flightState.elapsed += dt;
-  const { track, elapsed } = flightState;
+  // Advance by dt * 60 frames (frame-rate independent)
+  flightState.frameFloat += dt * 60;
+  const { flight } = flightState;
+  const fi = Math.min(Math.floor(flightState.frameFloat), flight.totalFrames - 1);
 
-  // Past the end?
-  if (elapsed >= track[track.length - 1].t) {
-    const last = track[track.length - 1];
+  if (fi >= flight.totalFrames - 1) {
+    const last = flight.frames[flight.totalFrames - 1];
     camera.position.set(last.x, last.y, last.z);
-    camera.lookAt(last.lx, last.ly, last.lz);
+    camera.lookAt(flight.destLook.x, flight.destLook.y, flight.destLook.z);
     camera.rotation.z = 0;
     flightState.done = true;
     showContentPanel(currentPanel);
     return;
   }
 
-  // Find bracketing keyframes
-  let a = track[0], b = track[1];
-  for (let i = 0; i < track.length - 1; i++) {
-    if (elapsed >= track[i].t && elapsed < track[i + 1].t) {
-      a = track[i]; b = track[i + 1]; break;
-    }
-  }
-
-  // Interpolation factor (0 to 1 between keyframes)
-  const segDur = b.t - a.t;
-  const t = segDur > 0 ? (elapsed - a.t) / segDur : 0;
-
-  // Smoothstep for position (no jerk at keyframe boundaries)
-  const e = t * t * (3 - 2 * t);
-
-  // Position: direct lerp between keyframes
-  const px = a.x + (b.x - a.x) * e;
-  const py = a.y + (b.y - a.y) * e;
-  const pz = a.z + (b.z - a.z) * e;
+  // Sub-frame interpolation for extra smoothness
+  const frac = flightState.frameFloat - fi;
+  const a = flight.frames[fi];
+  const b = flight.frames[Math.min(fi + 1, flight.totalFrames - 1)];
+  const px = a.x + (b.x - a.x) * frac;
+  const py = a.y + (b.y - a.y) * frac;
+  const pz = a.z + (b.z - a.z) * frac;
   camera.position.set(px, py, pz);
 
-  // Ideal look target: lerp between keyframe look targets
-  const ilx = a.lx + (b.lx - a.lx) * e;
-  const ily = a.ly + (b.ly - a.ly) * e;
-  const ilz = a.lz + (b.lz - a.lz) * e;
+  // Look direction: where we will be 5 frames from now (velocity vector)
+  const lookAhead = 5;
+  const li = Math.min(fi + lookAhead, flight.totalFrames - 1);
+  const lookFrame = flight.frames[li];
 
-  // Frame-rate independent smooth filter (THE butter)
-  const lf = 1 - Math.exp(-6 * Math.min(dt, 0.05));
-  smoothLookX += (ilx - smoothLookX) * lf;
-  smoothLookY += (ily - smoothLookY) * lf;
-  smoothLookZ += (ilz - smoothLookZ) * lf;
-  camera.lookAt(smoothLookX, smoothLookY, smoothLookZ);
-
-  // Zero roll (we can add banking later once the base track works)
+  // Last 30 frames: blend from velocity-look to panel-look
+  const framesLeft = flight.totalFrames - 1 - fi;
+  if (framesLeft < 30) {
+    const blend = 1 - (framesLeft / 30); // 0 to 1
+    const sb = blend * blend * (3 - 2 * blend);
+    const lx = lookFrame.x + (flight.destLook.x - lookFrame.x) * sb;
+    const ly = lookFrame.y + (flight.destLook.y - lookFrame.y) * sb;
+    const lz = lookFrame.z + (flight.destLook.z - lookFrame.z) * sb;
+    camera.lookAt(lx, ly, lz);
+  } else {
+    camera.lookAt(lookFrame.x, lookFrame.y, lookFrame.z);
+  }
   camera.rotation.z = 0;
 }
-
 // ============ CONTENT PANEL ============
 const contentEl = document.createElement('div');
 contentEl.id = 'content-panel';
