@@ -469,4 +469,11 @@ async function init() {
   console.log('Hive Viz alive.');
 }
 
-init().catch(e => console.error('Init failed:', e));
+// Wait for password gate unlock before initializing
+if (window.__hiveUnlocked) {
+  init().catch(e => console.error('Init failed:', e));
+} else {
+  window.addEventListener('hive-unlock', () => {
+    init().catch(e => console.error('Init failed:', e));
+  });
+}
