@@ -1,96 +1,17 @@
-// Tesseract corridor geometry generator v3
-// Biome worlds + scale + verticality
+// Tesseract v4 - Force-directed graph layout
+// Stripped corridors/biomes. Pure graph data + d3-force-3d layout.
 
-const PANEL_SPACING = 8; // 5x from original ~3 -> spread panels out
-const INTERSECTION_SIZE = 20;
+import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from 'd3-force-3d';
+
 const SKIP_PATHS = ['60-Knowledge/raw-data'];
 
-// ============ BIOME CONFIGS ============
-// Each folder is its own WORLD with distinct visual DNA
-const BIOMES = {
-  '10-Sessions': {
-    axis: 'z', sign: 1, layer: 0,
-    width: 12, height: 14,
-    gridStep: 4, gridDensity: 'clean',
-    ceilingHeight: 14,
-    bgTone: 0xf5f5f5,
-    lineColor: 0x999999, lineDark: 0x444444,
-    accent: 0x4477cc,
-    style: 'antichamber-clean', // ref: 004_tesseract, 014_antichamber
-    blocks: false,
-  },
-  '20-Architecture': {
-    axis: 'x', sign: 1, layer: 0,
-    width: 8, height: 20,  // canyon-like: narrow + tall
-    gridStep: 1.5, gridDensity: 'dense',
-    ceilingHeight: 20,
-    bgTone: 0xe8e8e8,
-    lineColor: 0x222222, lineDark: 0x111111,
-    accent: 0x44aadd,
-    style: 'dense-grid', // ref: 011_antichamber
-    blocks: false,
-  },  '60-Knowledge': {
-    axis: 'z', sign: -1, layer: 0,
-    width: 20, height: 50,  // massive open space, block city
-    gridStep: 3, gridDensity: 'medium',
-    ceilingHeight: 50,
-    bgTone: 0xf0f0f0,
-    lineColor: 0xaaaaaa, lineDark: 0x666666,
-    accent: 0xddaa44,
-    style: 'block-city', // ref: 050_hub (white block cityscape)
-    blocks: true, blockDensity: 0.6, blockMaxHeight: 35, blockMinHeight: 2,
-  },
-  '70-Ops': {
-    axis: 'x', sign: -1, layer: 0,
-    width: 14, height: 24,
-    gridStep: 2, gridDensity: 'medium',
-    ceilingHeight: 24,
-    bgTone: 0x222222,  // DARK biome
-    lineColor: 0x888888, lineDark: 0xcccccc, // inverted: light lines on dark
-    accent: 0x44dd88,
-    style: 'dark-runway', // ref: 023_biome (dark floor + green glow)
-    blocks: false, darkFloor: true,
-  },
-  '30-Projects': {
-    axis: 'z', sign: 1, layer: 1,
-    width: 10, height: 16,
-    gridStep: 2, gridDensity: 'medium',
-    ceilingHeight: 16,
-    bgTone: 0xf0f0f0,
-    lineColor: 0x444444, lineDark: 0x222222,
-    accent: 0xcc4433,
-    style: 'saturated-blocks', // ref: 023_biome (red block corridor)
-    blocks: true, blockDensity: 0.8, blockMaxHeight: 12, blockMinHeight: 1,
-    blockColors: [0xcc3333, 0xdd6633, 0xee8833, 0xcc4444, 0xbb2222],
-  },  '50-Playbooks': {
-    axis: 'x', sign: 1, layer: 1,
-    width: 10, height: 12,
-    gridStep: 3, gridDensity: 'clean',
-    ceilingHeight: 12,
-    bgTone: 0xf2f2f2,
-    lineColor: 0x888888, lineDark: 0x555555,
-    accent: 0x44aa88,
-    style: 'antichamber-clean',
-    blocks: false,
-  },
-  '01-Daily': {
-    axis: 'z', sign: -1, layer: 1,
-    width: 8, height: 10,
-    gridStep: 3, gridDensity: 'clean',
-    ceilingHeight: 10,
-    bgTone: 0xf5f5f5,
-    lineColor: 0xbbbbbb, lineDark: 0x888888,
-    accent: 0x44bbcc,
-    style: 'antichamber-clean',
-    blocks: false,
-  },
-  '40-Decisions': { axis: 'x', sign: -1, layer: 1, width: 8, height: 10, gridStep: 3, gridDensity: 'clean', ceilingHeight: 10, bgTone: 0xf0f0f0, lineColor: 0x999999, lineDark: 0x666666, accent: 0x8866cc, style: 'antichamber-clean', blocks: false },
-  '80-Secure':   { axis: 'z', sign: 1, layer: 2, width: 6, height: 8, gridStep: 2, gridDensity: 'dense', ceilingHeight: 8, bgTone: 0xe0e0e0, lineColor: 0x333333, lineDark: 0x111111, accent: 0xcc4466, style: 'dense-grid', blocks: false },
-  '39-Archive':  { axis: 'x', sign: 1, layer: 2, width: 10, height: 14, gridStep: 4, gridDensity: 'clean', ceilingHeight: 14, bgTone: 0xf0f0f0, lineColor: 0xaaaaaa, lineDark: 0x777777, accent: 0x999999, style: 'antichamber-clean', blocks: false },
-  '00-Inbox':    { axis: 'z', sign: -1, layer: 2, width: 8, height: 10, gridStep: 3, gridDensity: 'clean', ceilingHeight: 10, bgTone: 0xf5f5f5, lineColor: 0xbbbbbb, lineDark: 0x888888, accent: 0xaaaaaa, style: 'antichamber-clean', blocks: false },
-  '99-Templates':{ axis: 'x', sign: -1, layer: 2, width: 6, height: 8, gridStep: 3, gridDensity: 'clean', ceilingHeight: 8, bgTone: 0xf0f0f0, lineColor: 0xaaaaaa, lineDark: 0x777777, accent: 0x888888, style: 'antichamber-clean', blocks: false },
-};
-const LAYER_OFFSET = 30; // Increased from 12 for more vertical separation
+// Folder display order for sidebar
+export const FOLDER_ORDER = [
+  '00-Inbox', '01-Daily', '10-Sessions', '20-Architecture',
+  '30-Projects', '39-Archive', '40-Decisions', '50-Playbooks',
+  '60-Knowledge', '70-Ops', '80-Secure', '99-Templates',
+];
+
 export class Tesseract {
   constructor(graphData) {
     this.nodes = graphData.nodes.filter(n => {
@@ -100,17 +21,13 @@ export class Tesseract {
     });
     const nodeIds = new Set(this.nodes.map(n => n.id));
     this.edges = graphData.edges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
-    this.corridors = new Map();
-    this.panels = new Map();
     this.nodeIndex = new Map();
     this.adjacency = new Map();
-    this.blocks = []; // vertical block elements
+
     for (const n of this.nodes) this.nodeIndex.set(n.id, n);
     this._buildAdjacency();
-    this._buildCorridors();
-    this._placePanels();
-    this._generateBlocks();
-    console.log(`Tesseract v3: ${this.nodes.length} nodes, ${this.corridors.size} corridors, ${this.panels.size} panels, ${this.blocks.length} blocks`);
+
+    console.log(`Tesseract v4: ${this.nodes.length} nodes, ${this.edges.length} edges`);
   }
 
   _buildAdjacency() {
@@ -120,99 +37,215 @@ export class Tesseract {
       this.adjacency.get(e.target)?.add(e.source);
     }
   }
-  _buildCorridors() {
-    const folderGroups = new Map();
-    for (const n of this.nodes) {
-      const f = n.folder;
-      if (!folderGroups.has(f)) folderGroups.set(f, []);
-      folderGroups.get(f).push(n);
+
+  // Run d3-force-3d simulation, returns when converged
+  // Stores x, y, z on each node object
+  layoutGraph() {
+    // d3-force-3d mutates the nodes/edges arrays, so make copies with refs
+    const simNodes = this.nodes.map(n => ({
+      id: n.id,
+      _node: n, // back-reference
+    }));
+    const simNodeMap = new Map(simNodes.map(n => [n.id, n]));
+
+    const simLinks = this.edges
+      .filter(e => simNodeMap.has(e.source) && simNodeMap.has(e.target))
+      .map(e => ({ source: e.source, target: e.target }));
+
+    const sim = forceSimulation(simNodes, 3)
+      .force('link', forceLink(simLinks).id(d => d.id).distance(120).strength(0.2))
+      .force('charge', forceManyBody().strength(-300))
+      .force('center', forceCenter(0, 0, 0))
+      .force('collide', forceCollide(15))
+      .stop();
+
+    // Run to convergence
+    sim.tick(300);
+
+    // Scale positions to fill a massive volume
+    let maxR = 0;
+    for (const sn of simNodes) {
+      const r = Math.sqrt(sn.x * sn.x + sn.y * sn.y + sn.z * sn.z);
+      if (r > maxR) maxR = r;
     }
-    for (const [folder, nodes] of folderGroups) {
-      const biome = BIOMES[folder];
-      if (!biome) continue;
-      const yOffset = (biome.layer || 0) * LAYER_OFFSET;
-      const length = nodes.length * PANEL_SPACING + INTERSECTION_SIZE;
-      this.corridors.set(folder, {
-        folder, nodes, biome, length, yOffset,
-        width: biome.width, height: biome.height,
-      });
+    const scale = maxR > 0 ? 3000 / maxR : 1;
+
+    for (const sn of simNodes) {
+      sn._node.x = sn.x * scale;
+      sn._node.y = sn.y * scale;
+      sn._node.z = sn.z * scale;
+      sn._node.vx = 0;
+      sn._node.vy = 0;
+      sn._node.vz = 0;
+      sn._node.linkCount = this.adjacency.get(sn.id)?.size || 0;
     }
+
+    // Store simulation and scale for later drag interactions
+    this.simulation = sim;
+    this.simNodes = simNodes;
+    this.simNodeMap = simNodeMap;
+    this.scale = scale;
+    // Save original forces for drag restore
+    this._originalCharge = sim.force('charge');
+    this._originalCenter = sim.force('center');
+    this._originalCollide = sim.force('collide');
+
+    return this;
   }
 
-  _placePanels() {
-    for (const [folder, corridor] of this.corridors) {
-      const { biome, yOffset, nodes } = corridor;
-      const dir = { axis: biome.axis, sign: biome.sign };
-      nodes.forEach((node, i) => {
-        const dist = INTERSECTION_SIZE + i * PANEL_SPACING;
-        const side = i % 2 === 0 ? 1 : -1;
-        const w2 = biome.width / 2;
-        const pos = { x: 0, y: yOffset + biome.height * 0.35, z: 0 };
-        const normal = { x: 0, y: 0, z: 0 };        if (dir.axis === 'x') {
-          pos.x = dir.sign * dist;
-          pos.z = side * w2;
-          normal.z = -side;
-        } else {
-          pos.z = dir.sign * dist;
-          pos.x = side * w2;
-          normal.x = -side;
-        }
-        this.panels.set(node.id, {
-          id: node.id, title: node.title, folder,
-          type: node.type, tags: node.tags, path: node.path,
-          wordCount: node.wordCount, created: node.created,
-          linkCount: (this.adjacency.get(node.id)?.size || 0),
-          pos, normal, side, biome,
-          corridorDir: dir.axis, corridorSign: dir.sign,
-          panelIndex: i,
-        });
-      });
-    }
+  // Reheat simulation (for drag interactions)
+  reheat(alpha = 0.3) {
+    this.simulation.alpha(alpha).restart();
   }
 
-  _generateBlocks() {
-    // Generate vertical block elements for block-city and saturated-blocks biomes
-    for (const [folder, corridor] of this.corridors) {
-      const { biome, yOffset, length } = corridor;
-      if (!biome.blocks) continue;
-      const w2 = biome.width / 2;
-      const count = Math.floor(length * biome.blockDensity * 0.5);      const seed = folder.charCodeAt(0); // deterministic pseudo-random
-      for (let i = 0; i < count; i++) {
-        const t = (i + 0.5) / count;
-        const dist = INTERSECTION_SIZE + t * length;
-        const h = biome.blockMinHeight + Math.abs(Math.sin(seed * i * 0.73)) * (biome.blockMaxHeight - biome.blockMinHeight);
-        const bw = 1 + Math.abs(Math.sin(seed * i * 1.37)) * 3;
-        const bd = 1 + Math.abs(Math.sin(seed * i * 2.17)) * 3;
-        // Position along corridor walls and scattered in middle
-        const laneOffset = (Math.sin(seed * i * 0.47) > 0 ? 1 : -1) * (Math.abs(Math.sin(seed * i * 0.91)) * w2 * 0.8);
-        const pos = { x: 0, y: yOffset, z: 0 };
-        if (biome.axis === 'x') { pos.x = biome.sign * dist; pos.z = laneOffset; }
-        else { pos.z = biome.sign * dist; pos.x = laneOffset; }
-        const color = biome.blockColors
-          ? biome.blockColors[Math.floor(Math.abs(Math.sin(seed * i * 3.14)) * biome.blockColors.length)]
-          : biome.lineColor;
-        this.blocks.push({ pos, width: bw, depth: bd, height: h, color, folder, biome });
+  // Enter drag mode: disable global forces, only keep links
+  startDrag() {
+    this.simulation.force('charge', null);
+    this.simulation.force('center', null);
+    this.simulation.force('collide', null);
+    // Pin all non-dragged nodes so only connected ones move via link force
+    for (const sn of this.simNodes) {
+      if (sn.fx == null) { // not already pinned
+        sn._savedX = sn.x; sn._savedY = sn.y; sn._savedZ = sn.z;
+        sn.fx = sn.x; sn.fy = sn.y; sn.fz = sn.z;
+        sn._autoPinned = true;
       }
     }
   }
 
-  getBiome(folder) { return BIOMES[folder]; }
+  // Exit drag mode: restore all forces
+  endDrag() {
+    // Restore forces
+    this.simulation
+      .force('charge', this._originalCharge)
+      .force('center', this._originalCenter)
+      .force('collide', this._originalCollide);
+    // Unpin auto-pinned nodes
+    for (const sn of this.simNodes) {
+      if (sn._autoPinned) {
+        sn.fx = null; sn.fy = null; sn.fz = null;
+        delete sn._autoPinned;
+      }
+    }
+  }
+
+  // Pin a node for dragging (world coords -> sim coords)
+  pinNode(nodeId, x, y, z) {
+    const sn = this.simNodeMap.get(nodeId);
+    if (sn) {
+      sn.fx = x / this.scale;
+      sn.fy = y / this.scale;
+      sn.fz = z / this.scale;
+      // Unpin direct neighbors so they can stretch
+      const neighbors = this.adjacency.get(nodeId);
+      if (neighbors) {
+        for (const nid of neighbors) {
+          const nsn = this.simNodeMap.get(nid);
+          if (nsn && nsn._autoPinned) {
+            nsn.fx = null; nsn.fy = null; nsn.fz = null;
+            delete nsn._autoPinned;
+          }
+        }
+      }
+    }
+  }
+
+  // Unpin a node
+  unpinNode(nodeId) {
+    const sn = this.simNodeMap.get(nodeId);
+    if (sn) { sn.fx = null; sn.fy = null; sn.fz = null; }
+  }
+
+  // Tick simulation (call each frame when active)
+  tickSimulation() {
+    if (this.simulation.alpha() < 0.001) return false;
+    this.simulation.tick(1);
+    // Sync positions back (sim coords -> world coords via scale)
+    for (const sn of this.simNodes) {
+      sn._node.x = sn.x * this.scale;
+      sn._node.y = sn.y * this.scale;
+      sn._node.z = sn.z * this.scale;
+    }
+    return true;
+  }
+
+  getNode(id) { return this.nodeIndex.get(id); }
+
+  getNeighbors(id) {
+    return [...(this.adjacency.get(id) || [])]
+      .map(nId => this.nodeIndex.get(nId))
+      .filter(Boolean);
+  }
+
+  getNodesByFolder() {
+    const map = new Map();
+    for (const n of this.nodes) {
+      if (!map.has(n.folder)) map.set(n.folder, []);
+      map.get(n.folder).push(n);
+    }
+    for (const [, nodes] of map) {
+      nodes.sort((a, b) => (b.linkCount || 0) - (a.linkCount || 0));
+    }
+    return map;
+  }
+
+  // Build a nested folder tree from node paths
+  getFolderTree() {
+    const root = { name: '', children: new Map(), nodes: [] };
+    for (const n of this.nodes) {
+      const parts = (n.path || '').split('/');
+      parts.pop(); // remove filename
+      let current = root;
+      for (const part of parts) {
+        if (!current.children.has(part)) {
+          current.children.set(part, { name: part, children: new Map(), nodes: [] });
+        }
+        current = current.children.get(part);
+      }
+      current.nodes.push(n);
+    }
+    // Sort nodes in each folder by link count
+    const sortTree = (node) => {
+      node.nodes.sort((a, b) => (b.linkCount || 0) - (a.linkCount || 0));
+      for (const child of node.children.values()) sortTree(child);
+    };
+    sortTree(root);
+    return root;
+  }
 
   search(query) {
     const q = query.toLowerCase();
     const results = [];
-    for (const [id, panel] of this.panels) {
+    for (const n of this.nodes) {
+      const title = n.title || n.id;
       const score = (
-        (panel.title.toLowerCase().includes(q) ? 10 : 0) +
-        (panel.id.toLowerCase().includes(q) ? 5 : 0) +
-        (panel.tags.some(t => t.toLowerCase().includes(q)) ? 3 : 0) +
-        (panel.type.toLowerCase().includes(q) ? 2 : 0)
+        (title.toLowerCase().includes(q) ? 10 : 0) +
+        (n.id.toLowerCase().includes(q) ? 5 : 0) +
+        ((n.tags || []).some(t => t.toLowerCase().includes(q)) ? 3 : 0) +
+        ((n.type || '').toLowerCase().includes(q) ? 2 : 0)
       );
-      if (score > 0) results.push({ ...panel, score });
+      if (score > 0) results.push({ ...n, score });
     }
     return results.sort((a, b) => b.score - a.score);
   }
 
-  getPanel(id) { return this.panels.get(id); }
-  getNeighbors(id) { return [...(this.adjacency.get(id) || [])].map(nId => this.panels.get(nId)).filter(Boolean); }
+  // Get edge data with positions and weights for rendering
+  getEdgesWithPositions() {
+    return this.edges.map(e => {
+      const s = this.nodeIndex.get(e.source);
+      const t = this.nodeIndex.get(e.target);
+      if (!s || !t) return null;
+      const sLinks = this.adjacency.get(e.source)?.size || 1;
+      const tLinks = this.adjacency.get(e.target)?.size || 1;
+      return {
+        source: e.source,
+        target: e.target,
+        sourcePos: { x: s.x, y: s.y, z: s.z },
+        targetPos: { x: t.x, y: t.y, z: t.z },
+        sourceFolder: s.folder,
+        targetFolder: t.folder,
+        weight: Math.min(sLinks, tLinks),
+      };
+    }).filter(Boolean);
+  }
 }

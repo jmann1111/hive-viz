@@ -1,5 +1,13 @@
 # Hive Viz - Galaxy Knowledge Visualizer
 
+## Workflow (MANDATORY)
+1. **Plan first.** For any non-trivial change (3+ steps), enter plan mode and write the plan before coding.
+2. **Read lessons.** Check ~/.claude/lessons/global.md and .claude/lessons.md (if exists) for relevant patterns.
+3. **Verify before done.** Screenshot, check logs, test the actual output before marking complete.
+4. **Capture mistakes.** After ANY correction or self-caught error, append to the appropriate lessons file.
+5. **One visual change at a time.** Make a change, screenshot, verify, then next change. No blind bulk edits.
+
+
 ## What This Is
 A 3D galaxy simulator where The Hive (Obsidian vault) is rendered as a galaxy.
 The curated brain (~220 connected nodes) is a bright nebula at the center.

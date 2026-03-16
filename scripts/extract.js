@@ -87,7 +87,8 @@ async function processFile(filePath, rootDir) {
     tags: Array.isArray(frontmatter.tags) ? frontmatter.tags : [],
     links: parseWikilinks(body),
     wordCount: countWords(body),
-    title: getTitle(body, id)
+    title: getTitle(body, id),
+    content: body.trim().slice(0, 5000),
   };
 }
 

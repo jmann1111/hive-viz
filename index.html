@@ -3,16 +3,46 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>The Tesseract</title>
+  <title>Hive Viz</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; overflow: hidden; background: #f0f0f0; }
-    #app { width: 100vw; height: 100vh; }
-    ::selection { background: #111; color: #f0f0f0; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #09090b; color: #a0a0a0; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif; }
+    #layout { display: flex; width: 100%; height: 100%; }
+    #sidebar {
+      width: 300px; min-width: 0; height: 100%; background: #0c0c0e;
+      border-right: 1px solid #1c1c1f; display: flex; flex-direction: column;
+      transition: width 0.25s ease; overflow: hidden; position: relative; z-index: 10;
+    }
+    #sidebar.collapsed { width: 0; border-right: none; }
+    .sb-shortcut-hint {
+      padding: 5px 12px; font-size: 9px; color: #2a2a2f; letter-spacing: 0.3px;
+      border-top: 1px solid #151517; text-align: center;
+    }
+    #reader-panel {
+      width: 0; min-width: 0; height: 100%; background: #0c0c0e;
+      border-right: 1px solid #1c1c1f; display: flex; flex-direction: column;
+      overflow: hidden; position: relative;
+    }
+    #reader-panel.open { min-width: 400px; }
+    #reader-resize {
+      position: absolute; top: 0; right: -3px; width: 6px; height: 100%;
+      cursor: col-resize; z-index: 11;
+    }
+    #reader-resize:hover { background: rgba(255,255,255,0.03); }
+    #app { flex: 1; height: 100%; overflow: hidden; position: relative; min-width: 300px; }
+    ::selection { background: #2a2a30; color: #e0e0e0; }
   </style>
+  <link rel="stylesheet" href="/src/styles/sidebar.css">
+  <link rel="stylesheet" href="/src/styles/reader.css">
 </head>
 <body>
-  <div id="app"></div>
+  <div id="layout">
+    <aside id="sidebar"></aside>
+    <div id="reader-panel">
+      <div id="reader-resize"></div>
+    </div>
+    <div id="app"></div>
+  </div>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>
