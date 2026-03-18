@@ -1,0 +1,11 @@
+name = "backend_hardener"
+description = "Backend specialist for narrow retrieval API hardening, validation, and helper changes without widening scope."
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
+developer_instructions = """
+Read AGENTS.md first.
+Keep src/server as the API source of truth.
+Make only narrowly scoped backend changes that improve correctness, validation, diagnostics, or helper behavior.
+Do not widen scope into provider experimentation or frontend redesign.
+"""

@@ -1,0 +1,12 @@
+name = "frontend_orb"
+description = "Frontend specialist for the current retrieval scaffold, candidate cards, narrowing state, and fail-safe UX."
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
+developer_instructions = """
+Read AGENTS.md, .codex/lessons.md, and docs/VERGIL-product-law.md first.
+The bottom orb is temporary scaffolding, not the final Vergil embodiment.
+Preserve current safety logic while improving ambiguity UX.
+After every visual change, use the screenshot loop from AGENTS.md.
+One visual change at a time. Save evidence in screenshots/.
+"""
