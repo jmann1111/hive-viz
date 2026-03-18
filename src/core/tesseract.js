@@ -4,6 +4,10 @@
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from 'd3-force-3d';
 
 const SKIP_PATHS = ['60-Knowledge/raw-data'];
+const VAULT_ROOT_PREFIXES = [
+  '/Users/jasonmann/Documents/The-Hive/',
+  '/Users/jasonmann/Documents/The-Hive-Sync/',
+];
 
 // Folder display order for sidebar
 export const FOLDER_ORDER = [
@@ -22,9 +26,14 @@ export class Tesseract {
     const nodeIds = new Set(this.nodes.map(n => n.id));
     this.edges = graphData.edges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
     this.nodeIndex = new Map();
+    this.pathIndex = new Map();
     this.adjacency = new Map();
 
-    for (const n of this.nodes) this.nodeIndex.set(n.id, n);
+    for (const n of this.nodes) {
+      this.nodeIndex.set(n.id, n);
+      const normalizedPath = Tesseract.normalizeVaultPath(n.path);
+      if (normalizedPath) this.pathIndex.set(normalizedPath, n);
+    }
     this._buildAdjacency();
 
     console.log(`Tesseract v4: ${this.nodes.length} nodes, ${this.edges.length} edges`);
@@ -171,6 +180,43 @@ export class Tesseract {
 
   getNode(id) { return this.nodeIndex.get(id); }
 
+  getNodeByPath(path) {
+    return this.pathIndex.get(Tesseract.normalizeVaultPath(path));
+  }
+
+  resolveNodeRef(ref = {}) {
+    const normalizedPath = Tesseract.normalizeVaultPath(ref.path);
+    if (!normalizedPath) {
+      return {
+        node: null,
+        validation: { nodeExists: false, pathExists: false },
+      };
+    }
+
+    const nodeByPath = this.pathIndex.get(normalizedPath) || null;
+    const nodeExists = Boolean(ref.nodeId && this.nodeIndex.has(ref.nodeId));
+    const pathExists = Boolean(nodeByPath);
+
+    if (!nodeByPath) {
+      return {
+        node: null,
+        validation: { nodeExists, pathExists: false },
+      };
+    }
+
+    if (ref.nodeId && nodeByPath.id !== ref.nodeId) {
+      return {
+        node: null,
+        validation: { nodeExists, pathExists: true },
+      };
+    }
+
+    return {
+      node: nodeByPath,
+      validation: { nodeExists: true, pathExists: true },
+    };
+  }
+
   getNeighbors(id) {
     return [...(this.adjacency.get(id) || [])]
       .map(nId => this.nodeIndex.get(nId))
@@ -247,5 +293,19 @@ export class Tesseract {
         weight: Math.min(sLinks, tLinks),
       };
     }).filter(Boolean);
+  }
+
+  static normalizeVaultPath(path = '') {
+    let normalized = String(path || '').trim().replace(/\\/g, '/');
+    if (!normalized) return '';
+
+    for (const prefix of VAULT_ROOT_PREFIXES) {
+      if (normalized.startsWith(prefix)) {
+        normalized = normalized.slice(prefix.length);
+        break;
+      }
+    }
+
+    return normalized.replace(/^\/+/, '').replace(/\/+/g, '/');
   }
 }

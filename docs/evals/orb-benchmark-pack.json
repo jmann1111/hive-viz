@@ -1,0 +1,217 @@
+{
+  "version": "orb-retrieval-benchmark-v1",
+  "description": "Canonical retrieval-first benchmark pack for the Hive orb. Paths are vault-relative and must validate against the current graph before UI action.",
+  "generated_from_graph": {
+    "path": "public/graph.json",
+    "total_nodes": 1447,
+    "total_edges": 2583
+  },
+  "response_contract": {
+    "version": "orb-retrieval-response-v1",
+    "rules": [
+      "Return retrieval intent, not archive essays.",
+      "Allowed actions after normalization: resolve, candidates, clarify.",
+      "Resolved and candidate paths must be valid vault-relative paths that exist in the current graph.",
+      "Use high confidence only when you can resolve directly.",
+      "Use medium confidence for 3 to 5 candidates.",
+      "Use low confidence for one narrow clarifying question."
+    ],
+    "normalized_shape": {
+      "action": "resolve | candidates | clarify",
+      "confidence": "high | medium | low",
+      "resolved": {
+        "path": "string",
+        "title": "string"
+      },
+      "candidates": [
+        {
+          "path": "string",
+          "title": "string"
+        }
+      ],
+      "question": "string"
+    }
+  },
+  "cases": [
+    {
+      "id": "direct_soul",
+      "category": "direct-resolve",
+      "query": "open SOUL",
+      "why": "Canonical Walt boot target. The orb should hit this instantly with no extra ceremony.",
+      "gold": {
+        "action": "resolve",
+        "confidence": "high",
+        "resolved_path": "60-Knowledge/walt-config/SOUL.md"
+      }
+    },
+    {
+      "id": "direct_walt_boot",
+      "category": "direct-resolve",
+      "query": "take me to Walt boot",
+      "why": "Every provider should map the colloquial alias to the boot sequence note.",
+      "gold": {
+        "action": "resolve",
+        "confidence": "high",
+        "resolved_path": "70-Ops/walt-boot.md"
+      }
+    },
+    {
+      "id": "direct_hive_conventions",
+      "category": "direct-resolve",
+      "query": "show Hive conventions",
+      "why": "Architecture note with an exact and current target. Good test for common internal language.",
+      "gold": {
+        "action": "resolve",
+        "confidence": "high",
+        "resolved_path": "20-Architecture/hive-conventions.md"
+      }
+    },
+    {
+      "id": "direct_psych_profile",
+      "category": "direct-resolve",
+      "query": "open Jason's psychological profile",
+      "why": "Exact title aliasing under a deep subfolder. Tests direct access into values-psychology.",
+      "gold": {
+        "action": "resolve",
+        "confidence": "high",
+        "resolved_path": "60-Knowledge/values-psychology/psychological-profile.md"
+      }
+    },
+    {
+      "id": "direct_command_center",
+      "category": "direct-resolve",
+      "query": "open command center",
+      "why": "High-link dashboard at the root. Should resolve cleanly despite the generic phrase.",
+      "gold": {
+        "action": "resolve",
+        "confidence": "high",
+        "resolved_path": "command-center.md"
+      }
+    },
+    {
+      "id": "candidate_memory_service",
+      "category": "candidate-list",
+      "query": "open memory service",
+      "why": "There is a system doc plus several closely related session logs. The right move is a ranked shortlist, not a forced single answer.",
+      "gold": {
+        "action": "candidates",
+        "confidence": "medium",
+        "candidate_paths": [
+          "20-Architecture/memory-service.md",
+          "10-Sessions/2026-03-08-memory-service-architecture.md",
+          "10-Sessions/2026-03-08-memory-service-build-deploy.md",
+          "10-Sessions/2026-03-08-memory-mcp-mmr-upgrade.md"
+        ]
+      }
+    },
+    {
+      "id": "candidate_openclaw",
+      "category": "candidate-list",
+      "query": "open OpenClaw",
+      "why": "OpenClaw maps to anthology, recovery, nuggets, and raw transcripts. A ranked 3 to 5 list is the safe retrieval behavior.",
+      "gold": {
+        "action": "candidates",
+        "confidence": "medium",
+        "candidate_paths": [
+          "60-Knowledge/chatgpt-history-anthology.md",
+          "10-Sessions/2026-03-09-openclaw-vault-oauth-recovery.md",
+          "60-Knowledge/insights/openclaw-nuggets-mar-01-05.md",
+          "60-Knowledge/insights/openclaw-nuggets-feb-23-28.md",
+          "60-Knowledge/raw-data/openclaw-transcripts/2026-02-12-openclaw.md"
+        ]
+      }
+    },
+    {
+      "id": "candidate_anthology",
+      "category": "candidate-list",
+      "query": "open the anthology",
+      "why": "Anthology is a live ambiguous term across Claude, ChatGPT/OpenClaw, and a session note.",
+      "gold": {
+        "action": "candidates",
+        "confidence": "medium",
+        "candidate_paths": [
+          "60-Knowledge/chatgpt-history-anthology.md",
+          "60-Knowledge/chat-history-anthology.md",
+          "10-Sessions/2026-03-08-anthology-completion.md"
+        ]
+      }
+    },
+    {
+      "id": "clarify_readme",
+      "category": "clarify",
+      "query": "open README",
+      "why": "README exists in too many folders. The orb should ask one narrow question instead of guessing.",
+      "gold": {
+        "action": "clarify",
+        "confidence": "low",
+        "clarify_scope": "Ask which folder or project README Jason means."
+      }
+    },
+    {
+      "id": "clarify_dashboard",
+      "category": "clarify",
+      "query": "open dashboard",
+      "why": "Dashboard alone is underspecified because multiple dashboard notes exist with different jobs.",
+      "gold": {
+        "action": "clarify",
+        "confidence": "low",
+        "clarify_scope": "Ask whether Jason wants the daily task tracker or the sessions browser."
+      }
+    },
+    {
+      "id": "clarify_open_loops",
+      "category": "clarify",
+      "query": "open open loops",
+      "why": "Knowledge note and ops dashboard share the same title. Asking the one narrow question is better than overconfident resolution.",
+      "gold": {
+        "action": "clarify",
+        "confidence": "low",
+        "clarify_scope": "Ask whether Jason wants the knowledge note or the ops dashboard."
+      }
+    },
+    {
+      "id": "direct_sessions_browser",
+      "category": "direct-resolve",
+      "query": "show sessions browser",
+      "why": "Common utility surface. Should map to the sessions dashboard directly.",
+      "gold": {
+        "action": "resolve",
+        "confidence": "high",
+        "resolved_path": "10-Sessions/dashboard.md"
+      }
+    },
+    {
+      "id": "direct_reindex_report",
+      "category": "direct-resolve",
+      "query": "open the March 13 reindex report",
+      "why": "Tests date grounding and health-report retrieval.",
+      "gold": {
+        "action": "resolve",
+        "confidence": "high",
+        "resolved_path": "70-Ops/health-reports/2026-03-13-reindex-report.md"
+      }
+    },
+    {
+      "id": "direct_daily_psych_index",
+      "category": "direct-resolve",
+      "query": "open the daily psych index",
+      "why": "Folder README that should be reachable through the colloquial alias.",
+      "gold": {
+        "action": "resolve",
+        "confidence": "high",
+        "resolved_path": "60-Knowledge/values-psychology/daily-psych/README.md"
+      }
+    },
+    {
+      "id": "direct_hive_index",
+      "category": "direct-resolve",
+      "query": "take me to the Hive index",
+      "why": "Root dashboard target. Useful control case for the top-level entry point.",
+      "gold": {
+        "action": "resolve",
+        "confidence": "high",
+        "resolved_path": "index.md"
+      }
+    }
+  ]
+}

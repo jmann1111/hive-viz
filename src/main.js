@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Tesseract } from './core/tesseract.js';
-import { buildEdges, buildNodes, buildSkybox, syncPositions, highlightSelection, clearSelection, updateSelectionPulse, highlightSearchResults } from './core/graph-scene.js';
+import { buildEdges, buildNodes, buildSkybox, highlightSelection, clearSelection, updateSelectionPulse, highlightSearchResults } from './core/graph-scene.js';
 import { createSidebar } from './core/sidebar.js';
 import { initReader, openReader, closeReader, isReaderOpen } from './core/reader.js';
+import { createOrb } from './core/orb.js';
+import { createRetrievalClient } from './core/retrieval-client.js';
 
 // ============ RENDERER ============
 const appEl = document.getElementById('app');
@@ -105,10 +107,14 @@ function createControls() {
 let tesseract = null;
 let edgeHandle = null;
 let nodeHandle = null;
+let sidebarApi = null;
+let orb = null;
 let selectedNode = null;
 let lastNavTimestamp = 0;
 let onSelectCallbacks = [];
 const clock = new THREE.Clock();
+const retrievalClient = createRetrievalClient();
+let clarificationContext = null;
 
 // ============ SMOOTH CAMERA ============
 let flyState = null; // kept for compat checks
@@ -118,12 +124,22 @@ const BASE_FOV = 60;
 const SMOOTH_FACTOR = 0.045;
 
 
-function flyToNode(nodeId) {
+function hashString(value) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) {
+    hash = ((hash << 5) - hash) + value.charCodeAt(i);
+    hash |= 0;
+  }
+  return (hash >>> 0) / 4294967295;
+}
+
+function flyToNode(nodeId, options = {}) {
   const node = tesseract.getNode(nodeId);
   if (!node) return;
 
   const target = new THREE.Vector3(node.x, node.y, node.z);
   const approachDist = 40 + zoomLevel * 960;
+  const deterministic = options.deterministic !== false;
 
   // Position camera outside the node, biased away from center
   const fromCenter = target.clone();
@@ -135,8 +151,10 @@ function flyToNode(nodeId) {
   const right = new THREE.Vector3().crossVectors(fromCenter, up).normalize();
   const realUp = new THREE.Vector3().crossVectors(right, fromCenter).normalize();
 
-  const tiltAngle = (10 + Math.random() * 30) * Math.PI / 180;
-  const spinAngle = Math.random() * Math.PI * 2;
+  const tiltSeed = deterministic ? hashString(`${nodeId}:tilt`) : Math.random();
+  const spinSeed = deterministic ? hashString(`${nodeId}:spin`) : Math.random();
+  const tiltAngle = (14 + tiltSeed * 16) * Math.PI / 180;
+  const spinAngle = spinSeed * Math.PI * 2;
   const offsetDir = new THREE.Vector3()
     .addScaledVector(fromCenter, Math.cos(tiltAngle))
     .addScaledVector(right, Math.sin(tiltAngle) * Math.cos(spinAngle))
@@ -278,12 +296,15 @@ function updateBreadcrumbs() {
 }
 
 // ============ SELECTION ============
-function selectNode(nodeId) {
-  if (nodeId === selectedNode) return;
+function selectNode(nodeId, options = {}) {
+  const { deterministicFocus = true, forceFocus = false } = options;
+  const wasSameNode = nodeId === selectedNode;
   selectedNode = nodeId;
   if (nodeId && edgeHandle && nodeHandle) {
     highlightSelection(edgeHandle, nodeHandle, nodeId, tesseract);
-    flyToNode(nodeId);
+    if (!wasSameNode || forceFocus) {
+      flyToNode(nodeId, { deterministic: deterministicFocus });
+    }
     // Breadcrumb
     if (!breadcrumbHistory.includes(nodeId)) {
       breadcrumbHistory.push(nodeId);
@@ -301,6 +322,106 @@ function deselectNode() {
   selectedTitle.style.display = 'none';
   if (edgeHandle && nodeHandle) clearSelection(edgeHandle, nodeHandle);
   for (const cb of onSelectCallbacks) cb(null);
+}
+
+function openInlineNode(nodeId, options = {}) {
+  if (!nodeId) return;
+  selectNode(nodeId, {
+    deterministicFocus: options.deterministicFocus !== false,
+    forceFocus: Boolean(options.forceFocus),
+  });
+  sidebarApi?.openInlineReader(nodeId);
+}
+
+function resolveOrbNodeRef(ref) {
+  if (!tesseract) return { node: null, validation: { nodeExists: false, pathExists: false } };
+  return tesseract.resolveNodeRef(ref);
+}
+
+function toOrbResolvedState(resolved) {
+  return {
+    mode: 'resolved',
+    resolved: {
+      nodeId: resolved.nodeId,
+      title: resolved.title,
+      folder: resolved.folder,
+      score: resolved.score,
+    },
+  };
+}
+
+function showOrbError(message) {
+  orb?.setState({
+    mode: 'error',
+    message,
+  });
+}
+
+function applyResolvedOrbResult(resolved) {
+  const resolution = resolveOrbNodeRef(resolved);
+  if (!resolution.node) {
+    showOrbError('Resolved path was not found in the loaded graph.');
+    return;
+  }
+
+  orb?.setState(toOrbResolvedState(resolved));
+  openInlineNode(resolution.node.id, {
+    deterministicFocus: true,
+    forceFocus: true,
+  });
+}
+
+function normalizeOrbCandidate(candidate) {
+  const resolution = resolveOrbNodeRef(candidate);
+  if (!resolution.node) return null;
+  return {
+    ...candidate,
+    nodeId: resolution.node.id,
+  };
+}
+
+async function submitOrbQuery(query, options = {}) {
+  const trimmed = String(query || '').trim();
+  if (!trimmed) return;
+
+  orb?.setState({ mode: 'searching' });
+
+  try {
+    const response = await retrievalClient.retrieve(trimmed, clarificationContext, {
+      provider: options.provider || orb?.getProvider?.() || 'openai',
+    });
+
+    if (response.intent === 'resolved') {
+      clarificationContext = null;
+      applyResolvedOrbResult(response.resolved);
+      return;
+    }
+
+    if (response.intent === 'candidates') {
+      clarificationContext = null;
+      const candidates = response.candidates.map(normalizeOrbCandidate).filter(Boolean);
+      if (candidates.length === 0) {
+        showOrbError('Returned candidates did not map to real notes.');
+        return;
+      }
+      orb?.setState({
+        mode: 'candidates',
+        candidates,
+      });
+      return;
+    }
+
+    clarificationContext = {
+      previousQuery: trimmed,
+      question: response.question,
+    };
+    orb?.setState({
+      mode: 'clarification',
+      question: response.question,
+    });
+  } catch (error) {
+    showOrbError(error.message || 'Orb request failed.');
+  }
 }
 
 // ============ CLICK DETECTION ============
@@ -390,7 +511,17 @@ async function init() {
   };
 
   // Sidebar
-  createSidebar(tesseract, selectNode, onSelectCallbacks, handleOpenReader, handleSearchHighlight);
+  sidebarApi = createSidebar(tesseract, selectNode, onSelectCallbacks, handleOpenReader, handleSearchHighlight);
+
+  // Orb
+  orb = createOrb({
+    mount: document.getElementById('orb-root'),
+    onSubmit: submitOrbQuery,
+    onCandidateSelect: (candidate) => {
+      clarificationContext = null;
+      applyResolvedOrbResult(candidate);
+    },
+  });
 
   // Idle drift reset on interaction
   for (const evt of ['pointerdown', 'pointermove', 'wheel', 'keydown']) {
@@ -411,6 +542,11 @@ async function init() {
     if (e.key === 'Escape') {
       if (isReaderOpen()) { closeReader(); return; }
       deselectNode();
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      orb?.focus();
+      return;
     }
     if (e.key === '/' && e.target.tagName !== 'INPUT') {
       e.preventDefault();

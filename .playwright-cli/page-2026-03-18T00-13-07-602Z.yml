@@ -1,0 +1,85 @@
+- generic [ref=e5]:
+  - complementary [ref=e6]:
+    - textbox "Search nodes..." [ref=e8]
+    - generic [ref=e9]:
+      - group [ref=e10]:
+        - generic "Inbox 1" [ref=e11] [cursor=pointer]:
+          - generic [ref=e12]: Inbox
+          - generic [ref=e13]: "1"
+      - group [ref=e14]:
+        - generic "Daily 15" [ref=e15] [cursor=pointer]:
+          - generic [ref=e16]: Daily
+          - generic [ref=e17]: "15"
+      - group [ref=e18]:
+        - generic "Sessions 41" [ref=e19] [cursor=pointer]:
+          - generic [ref=e20]: Sessions
+          - generic [ref=e21]: "41"
+      - group [ref=e22]:
+        - generic "Architecture 19" [ref=e23] [cursor=pointer]:
+          - generic [ref=e24]: Architecture
+          - generic [ref=e25]: "19"
+      - group [ref=e26]:
+        - generic "Projects 22" [ref=e27] [cursor=pointer]:
+          - generic [ref=e28]: Projects
+          - generic [ref=e29]: "22"
+      - group [ref=e30]:
+        - generic "Archive 3" [ref=e31] [cursor=pointer]:
+          - generic [ref=e32]: Archive
+          - generic [ref=e33]: "3"
+      - group [ref=e34]:
+        - generic "Decisions 1" [ref=e35] [cursor=pointer]:
+          - generic [ref=e36]: Decisions
+          - generic [ref=e37]: "1"
+      - group [ref=e38]:
+        - generic "Playbooks 14" [ref=e39] [cursor=pointer]:
+          - generic [ref=e40]: Playbooks
+          - generic [ref=e41]: "14"
+      - group [ref=e42]:
+        - generic "Knowledge 62" [ref=e43] [cursor=pointer]:
+          - generic [ref=e44]: Knowledge
+          - generic [ref=e45]: "62"
+      - group [ref=e46]:
+        - generic "Ops 47" [ref=e47] [cursor=pointer]:
+          - generic [ref=e48]: Ops
+          - generic [ref=e49]: "47"
+      - group [ref=e50]:
+        - generic "Secure 2" [ref=e51] [cursor=pointer]:
+          - generic [ref=e52]: Secure
+          - generic [ref=e53]: "2"
+      - group [ref=e54]:
+        - generic "Templates 6" [ref=e55] [cursor=pointer]:
+          - generic [ref=e56]: Templates
+          - generic [ref=e57]: "6"
+    - generic [ref=e59]: Shift+Tab to toggle
+  - generic [ref=e62]:
+    - generic [ref=e63]:
+      - generic [ref=e64]:
+        - generic [ref=e67]: Orb
+        - generic [ref=e68]:
+          - generic [ref=e69]: Direct retrieval
+          - generic [ref=e70]:
+            - generic [ref=e71]: Provider
+            - combobox "Provider" [ref=e72]:
+              - option "OpenAI" [selected]
+              - option "Gemini"
+      - generic [ref=e73]:
+        - textbox "Find a note..." [ref=e74]: SOUL
+        - button "Open" [ref=e75] [cursor=pointer]
+      - generic [ref=e104]:
+        - generic [ref=e105]: Could not resolve
+        - generic [ref=e106]: Invalid normalizedQuery
+    - generic [ref=e80]:
+      - generic [ref=e81]: Rotate
+      - checkbox [ref=e82] [cursor=pointer]
+      - slider [ref=e83] [cursor=pointer]: "30"
+      - generic [ref=e85]: Zoom
+      - slider [ref=e86] [cursor=pointer]: "60"
+    - generic [ref=e87]:
+      - generic [ref=e88]: Sessions
+      - generic [ref=e90]: Architecture
+      - generic [ref=e92]: Projects
+      - generic [ref=e94]: Decisions
+      - generic [ref=e96]: Playbooks
+      - generic [ref=e98]: Knowledge
+      - generic [ref=e100]: Ops
+      - generic [ref=e102]: Secure

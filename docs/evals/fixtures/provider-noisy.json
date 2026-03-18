@@ -1,0 +1,201 @@
+{
+  "direct_soul": {
+    "latency_ms": 2120,
+    "response": {
+      "action": "resolve",
+      "confidence": "medium",
+      "resolved": {
+        "path": "60-Knowledge/walt-config/SOUL.md",
+        "title": "SOUL.md - Who You Are"
+      }
+    }
+  },
+  "direct_walt_boot": {
+    "latency_ms": 2940,
+    "response": {
+      "action": "candidates",
+      "confidence": "medium",
+      "candidates": [
+        {
+          "path": "70-Ops/walt-boot.md",
+          "title": "Walt Boot Sequence"
+        },
+        {
+          "path": "70-Ops/boot-test-questions.md",
+          "title": "Boot Sequence Test Questions"
+        }
+      ]
+    }
+  },
+  "direct_hive_conventions": {
+    "latency_ms": 1820,
+    "response": {
+      "action": "resolve",
+      "confidence": "high",
+      "resolved": {
+        "path": "20-Architecture/hive-conventions.md",
+        "title": "Hive Naming Laws"
+      }
+    }
+  },
+  "direct_psych_profile": {
+    "latency_ms": 3660,
+    "response": {
+      "action": "resolve",
+      "confidence": "high",
+      "resolved": {
+        "path": "60-Knowledge/values-psychology/jason-profile.md",
+        "title": "Jason's Psychological Profile"
+      }
+    }
+  },
+  "direct_command_center": {
+    "latency_ms": 1710,
+    "response": {
+      "action": "resolve",
+      "confidence": "low",
+      "resolved": {
+        "path": "command-center.md",
+        "title": "The Hive: Command Center"
+      }
+    }
+  },
+  "candidate_memory_service": {
+    "latency_ms": 3280,
+    "response": {
+      "action": "resolve",
+      "confidence": "high",
+      "resolved": {
+        "path": "10-Sessions/2026-03-08-memory-service-architecture.md",
+        "title": "Session: Memory Service Architecture + Vault Health + Librarian Deploy"
+      }
+    }
+  },
+  "candidate_openclaw": {
+    "latency_ms": 4420,
+    "response": {
+      "action": "candidates",
+      "confidence": "medium",
+      "candidates": [
+        {
+          "path": "60-Knowledge/chatgpt-history-anthology.md",
+          "title": "ChatGPT/OpenClaw Chat History Anthology"
+        },
+        {
+          "path": "60-Knowledge/insights/openclaw-nuggets-mar-01-05.md",
+          "title": "OpenClaw Nuggets: March 1-5, 2026"
+        },
+        {
+          "path": "70-Ops/openclaw.md",
+          "title": "OpenClaw Control Panel"
+        },
+        {
+          "path": "60-Knowledge/raw-data/openclaw-transcripts/2026-02-12-openclaw.md",
+          "title": "OpenClaw Transcripts: 2026-02-12"
+        },
+        {
+          "path": "10-Sessions/2026-03-09-openclaw-vault-oauth-recovery.md",
+          "title": "Session: OpenClaw Vault OAuth Recovery"
+        },
+        {
+          "path": "60-Knowledge/insights/openclaw-nuggets-feb-23-28.md",
+          "title": "OpenClaw Nuggets: Feb 23-28, 2026"
+        }
+      ]
+    }
+  },
+  "candidate_anthology": {
+    "latency_ms": 2780,
+    "response": {
+      "action": "candidates",
+      "confidence": "high",
+      "candidates": [
+        {
+          "path": "60-Knowledge/chat-history-anthology.md",
+          "title": "Claude Chat History Anthology"
+        },
+        {
+          "path": "10-Sessions/2026-03-08-anthology-completion.md",
+          "title": "Session: Anthology Completion and Project History"
+        }
+      ]
+    }
+  },
+  "clarify_readme": {
+    "latency_ms": 2620,
+    "response": {
+      "action": "resolve",
+      "confidence": "high",
+      "resolved": {
+        "path": "30-Projects/hive-viz/README.md",
+        "title": "Hive Viz - Temporal Knowledge Visualizer"
+      }
+    }
+  },
+  "clarify_dashboard": {
+    "latency_ms": 3010,
+    "response": {
+      "action": "clarify",
+      "confidence": "medium",
+      "question": "Which dashboard do you want, because there are a lot of dashboards, trackers, and views that could apply here?"
+    }
+  },
+  "clarify_open_loops": {
+    "latency_ms": 2440,
+    "response": {
+      "action": "candidates",
+      "confidence": "medium",
+      "candidates": [
+        {
+          "path": "60-Knowledge/open-loops.md",
+          "title": "Open Loops"
+        },
+        {
+          "path": "70-Ops/open-loops.md",
+          "title": "Open Loops"
+        }
+      ]
+    }
+  },
+  "direct_sessions_browser": {
+    "latency_ms": 1910,
+    "response": {
+      "action": "resolve",
+      "confidence": "high",
+      "resolved": {
+        "path": "10-Sessions/dashboard.md",
+        "title": "Sessions Browser"
+      }
+    }
+  },
+  "direct_reindex_report": {
+    "latency_ms": 3840,
+    "response": {
+      "action": "clarify",
+      "confidence": "low",
+      "question": "Do you mean a reindex report or some other memory service report?"
+    }
+  },
+  "direct_daily_psych_index": {
+    "latency_ms": 2660,
+    "response": {
+      "action": "resolve",
+      "confidence": "high",
+      "resolved": {
+        "path": "60-Knowledge/values-psychology/daily-psych/index.md",
+        "title": "Daily Psychological Analysis"
+      }
+    }
+  },
+  "direct_hive_index": {
+    "latency_ms": 1600,
+    "response": {
+      "action": "resolve",
+      "confidence": "high",
+      "resolved": {
+        "path": "index.md",
+        "title": "The Hive Root"
+      }
+    }
+  }
+}

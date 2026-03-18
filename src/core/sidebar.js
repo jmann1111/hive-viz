@@ -549,4 +549,10 @@ export function createSidebar(tesseract, onSelect, onSelectCallbacks, openReader
     showNodeDetail(nodeId);
     if (nodeId && readerPanel.classList.contains('open')) openInlineReader(nodeId);
   });
+
+  return {
+    openInlineReader,
+    closeInlineReader,
+    isInlineReaderOpen: () => readerPanel.classList.contains('open'),
+  };
 }

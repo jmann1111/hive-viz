@@ -1,0 +1,12 @@
+[
+  {
+    "id": "fixture-gold",
+    "mode": "fixture",
+    "fixture": "docs/evals/fixtures/provider-gold.json"
+  },
+  {
+    "id": "fixture-noisy",
+    "mode": "fixture",
+    "fixture": "docs/evals/fixtures/provider-noisy.json"
+  }
+]

@@ -30,10 +30,17 @@
     }
     #reader-resize:hover { background: rgba(255,255,255,0.03); }
     #app { flex: 1; height: 100%; overflow: hidden; position: relative; min-width: 300px; }
+    #orb-root {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 25;
+    }
     ::selection { background: #2a2a30; color: #e0e0e0; }
   </style>
   <link rel="stylesheet" href="/src/styles/sidebar.css">
   <link rel="stylesheet" href="/src/styles/reader.css">
+  <link rel="stylesheet" href="/src/styles/orb.css">
 </head>
 <body>
   <div id="gate" style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;flex-direction:column;gap:12px;">
@@ -47,7 +54,9 @@
     <div id="reader-panel">
       <div id="reader-resize"></div>
     </div>
-    <div id="app"></div>
+    <div id="app">
+      <div id="orb-root"></div>
+    </div>
   </div>
   <script>
     const HASH = 'c228c20098d2ebb911206e5ce2806d3271c022cee9cd9c2393d9221a2ea7f817';

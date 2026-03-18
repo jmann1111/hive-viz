@@ -15,7 +15,46 @@ See `docs/ARCHITECTURE.md` for the full technical design.
 npm install
 npm run extract    # Extract vault metadata into graph JSON
 npm run dev        # Start dev server with hot reload
+npm run server     # Start orb retrieval backend on :8787
 ```
+
+## Orb Retrieval Backend
+
+The orb backend is a direct low-latency retrieval path. It does not route through
+OpenClaw and it does not run an agent framework.
+
+### Endpoint
+
+`POST /api/orb/retrieve`
+
+```json
+{
+  "query": "open hive conventions",
+  "provider": "openai",
+  "model": "gpt-4.1-mini",
+  "maxCandidates": 5
+}
+```
+
+Structured response modes:
+
+- `resolved_note`
+- `candidate_notes`
+- `clarification_request`
+
+### Environment
+
+- `HIVE_VAULT_ROOT`: absolute path to the Obsidian vault root
+- `OPENAI_API_KEY`: required for OpenAI intent parsing
+- `GEMINI_API_KEY`: required for Gemini intent parsing
+- `ORB_SERVER_PORT`: optional, defaults to `8787`
+
+### Notes
+
+- Vite proxies `/api/*` to the orb server
+- Providers only parse retrieval intent
+- Local retrieval ranks notes from `public/graph.json`
+- Every actionable path is validated against the vault root before response
 
 ## Stack
 
