@@ -14,19 +14,27 @@ async function makeFixture() {
   const graphPath = path.join(tempRoot, 'graph.json');
 
   await fs.mkdir(path.join(vaultRoot, '20-Architecture'), { recursive: true });
+  await fs.mkdir(path.join(vaultRoot, '01-Daily'), { recursive: true });
   await fs.mkdir(path.join(vaultRoot, '30-Projects', 'alpha'), { recursive: true });
   await fs.mkdir(path.join(vaultRoot, '30-Projects', 'beta'), { recursive: true });
   await fs.mkdir(path.join(vaultRoot, '50-Playbooks'), { recursive: true });
   await fs.mkdir(path.join(vaultRoot, '60-Knowledge'), { recursive: true });
   await fs.mkdir(path.join(vaultRoot, '60-Knowledge', 'values-psychology'), { recursive: true });
+  await fs.mkdir(path.join(vaultRoot, '10-Sessions'), { recursive: true });
+  await fs.mkdir(path.join(vaultRoot, '70-Ops', 'health-reports'), { recursive: true });
 
   const files = {
     '20-Architecture/hive-conventions.md': '# Hive Conventions\n',
+    '01-Daily/2026-03-06.md': '# 2026-03-06\n\nReviewed the hive conventions doc and tightened the rules.\n',
     '30-Projects/alpha/launch-plan.md': '# Launch Plan\n',
     '30-Projects/beta/launch-checklist.md': '# Launch Checklist\n',
     '50-Playbooks/playbook-launch.md': '# Launch Playbook\n',
     '60-Knowledge/memory-service.md': '# Memory Service\n',
     '60-Knowledge/values-psychology/psychological-profile.md': '# Psychological Profile\n',
+    '10-Sessions/2026-03-15-session-log.md': '# Session Log 2026-03-15\n\nMost recent log notes for the Hive Viz retrieval sprint.\n',
+    '70-Ops/health-reports/2026-03-12-reindex-report.md': '# Reindex Report 2026-03-12\n',
+    '70-Ops/health-reports/2026-03-13-reindex-report.md': '# Reindex Report 2026-03-13\n',
+    '70-Ops/health-reports/2026-03-13-morning-report.md': '# Morning Report 2026-03-13\n',
   };
 
   await Promise.all(
@@ -45,6 +53,16 @@ async function makeFixture() {
         type: 'architecture',
         tags: ['architecture'],
         content: 'Naming rules for the Hive.',
+      },
+      {
+        id: 'daily-conventions-note',
+        title: '2026-03-06',
+        path: '01-Daily/2026-03-06.md',
+        folder: '01-Daily',
+        type: 'daily-note',
+        date: '2026-03-06',
+        tags: ['daily'],
+        content: 'Reviewed the hive conventions doc and tightened the rules.',
       },
       {
         id: 'launch-plan',
@@ -91,6 +109,46 @@ async function makeFixture() {
         tags: ['psychology'],
         content: 'Jason psychological profile.',
       },
+      {
+        id: 'session-log-2026-03-15',
+        title: 'Session Log',
+        path: '10-Sessions/2026-03-15-session-log.md',
+        folder: '10-Sessions',
+        type: 'session-log',
+        date: '2026-03-15',
+        tags: ['session-log', 'log'],
+        content: 'Most recent log notes for the Hive Viz retrieval sprint.',
+      },
+      {
+        id: 'reindex-report-2026-03-12',
+        title: 'Reindex Report',
+        path: '70-Ops/health-reports/2026-03-12-reindex-report.md',
+        folder: '70-Ops',
+        type: 'ops',
+        date: '2026-03-12',
+        tags: ['report', 'reindex'],
+        content: 'Graph health reindex report for March 12.',
+      },
+      {
+        id: 'reindex-report-2026-03-13',
+        title: 'Reindex Report',
+        path: '70-Ops/health-reports/2026-03-13-reindex-report.md',
+        folder: '70-Ops',
+        type: 'ops',
+        date: '2026-03-13',
+        tags: ['report', 'reindex'],
+        content: 'Graph health reindex report for March 13.',
+      },
+      {
+        id: 'morning-report-2026-03-13',
+        title: 'Morning Report',
+        path: '70-Ops/health-reports/2026-03-13-morning-report.md',
+        folder: '70-Ops',
+        type: 'ops',
+        date: '2026-03-13',
+        tags: ['report', 'morning'],
+        content: 'Morning ops report for March 13.',
+      },
     ],
     edges: [],
     meta: {},
@@ -120,11 +178,9 @@ async function startTestServer({ provider }) {
       providerTimeoutMs: 1000,
       defaultModels: {
         openai: 'gpt-4.1-mini',
-        gemini: 'gemini-2.5-flash',
       },
       apiKeys: {
         openai: '',
-        gemini: '',
       },
     },
     logger: {
@@ -134,7 +190,6 @@ async function startTestServer({ provider }) {
     },
     providers: {
       openai: provider,
-      gemini: provider,
     },
   });
 
@@ -155,7 +210,48 @@ async function startTestServer({ provider }) {
   };
 }
 
-test('resolves a high-confidence note with a validated absolute path', async () => {
+test('prefers the exact hive conventions doc over a nearby daily note', async () => {
+  const server = await startTestServer({
+    provider: {
+      async classifyRetrievalIntent() {
+        return {
+          confidence: 'high',
+          normalizedQuery: 'hive conventions doc',
+          searchPhrases: ['open the hive conventions doc', 'hive conventions doc', 'hive conventions'],
+          folderHints: ['20-Architecture'],
+          typeHints: ['architecture', 'doc'],
+          clarificationQuestion: null,
+        };
+      },
+    },
+  });
+
+  try {
+    const response = await fetch(`${server.baseUrl}/api/orb/retrieve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: 'open the hive conventions doc',
+        model: 'gpt-4.1-mini',
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+
+    assert.equal(payload.mode, 'resolved_note');
+    assert.equal(payload.note.title, 'Hive Conventions');
+    assert.equal(payload.note.path.vaultRelativePath, '20-Architecture/hive-conventions.md');
+    assert.equal(
+      payload.note.path.absolutePath,
+      path.join(server.fixture.vaultRoot, '20-Architecture/hive-conventions.md'),
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+test('prefers exact doc-name queries over semantically nearby daily notes', async () => {
   const server = await startTestServer({
     provider: {
       async classifyRetrievalIntent() {
@@ -176,9 +272,7 @@ test('resolves a high-confidence note with a validated absolute path', async () 
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        query: 'open hive conventions',
-        provider: 'openai',
-        model: 'gpt-4.1-mini',
+        query: 'find hive conventions',
       }),
     });
 
@@ -187,10 +281,8 @@ test('resolves a high-confidence note with a validated absolute path', async () 
 
     assert.equal(payload.mode, 'resolved_note');
     assert.equal(payload.note.title, 'Hive Conventions');
-    assert.equal(
-      payload.note.path.absolutePath,
-      path.join(server.fixture.vaultRoot, '20-Architecture/hive-conventions.md'),
-    );
+    assert.equal(payload.note.path.vaultRelativePath, '20-Architecture/hive-conventions.md');
+    assert.notEqual(payload.note.path.vaultRelativePath, '01-Daily/2026-03-06.md');
   } finally {
     await server.close();
   }
@@ -218,8 +310,6 @@ test('returns 3 candidates for medium confidence ambiguity', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         query: 'launch',
-        provider: 'gemini',
-        model: 'gemini-2.5-flash',
         maxCandidates: 3,
       }),
     });
@@ -229,9 +319,49 @@ test('returns 3 candidates for medium confidence ambiguity', async () => {
 
     assert.equal(payload.mode, 'candidate_notes');
     assert.equal(payload.candidates.length, 3);
+    assert.match(payload.candidates[0].reason, /30-Projects|50-Playbooks/);
     assert.deepEqual(
       payload.candidates.map((candidate) => candidate.title),
       ['Launch Checklist', 'Launch Plan', 'Launch Playbook'],
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+test('keeps the most recent log query conservative and returns candidates', async () => {
+  const server = await startTestServer({
+    provider: {
+      async classifyRetrievalIntent() {
+        return {
+          confidence: 'high',
+          normalizedQuery: 'most recent log',
+          searchPhrases: ['pull up the most recent log', 'most recent log', 'latest log'],
+          folderHints: ['10-Sessions', '70-Ops'],
+          typeHints: ['session-log', 'morning-report', 'ops'],
+          clarificationQuestion: null,
+        };
+      },
+    },
+  });
+
+  try {
+    const response = await fetch(`${server.baseUrl}/api/orb/retrieve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: 'pull up the most recent log',
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+
+    assert.equal(payload.mode, 'candidate_notes');
+    assert.equal(payload.note, undefined);
+    assert.ok(payload.candidates.length >= 1);
+    assert.ok(
+      payload.candidates.some((candidate) => candidate.path.vaultRelativePath === '10-Sessions/2026-03-15-session-log.md'),
     );
   } finally {
     await server.close();
@@ -260,7 +390,6 @@ test('asks one narrow clarification question for low confidence', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         query: 'open that note',
-        provider: 'openai',
       }),
     });
 
@@ -274,7 +403,7 @@ test('asks one narrow clarification question for low confidence', async () => {
   }
 });
 
-test('rejects invalid provider names', async () => {
+test('rejects provider fields in the openai-only request contract', async () => {
   const server = await startTestServer({
     provider: {
       async classifyRetrievalIntent() {
@@ -295,7 +424,123 @@ test('rejects invalid provider names', async () => {
 
     assert.equal(response.status, 400);
     const payload = await response.json();
-    assert.equal(payload.error.details.reason, 'unsupported_provider');
+    assert.equal(payload.error.details.reason, 'unexpected_field');
+    assert.equal(payload.error.details.field, 'provider');
+  } finally {
+    await server.close();
+  }
+});
+
+test('threads clarification context into provider parsing for immediate follow-up narrowing', async () => {
+  let capturedQuery = '';
+  const server = await startTestServer({
+    provider: {
+      async classifyRetrievalIntent({ query }) {
+        capturedQuery = query;
+        return {
+          confidence: 'low',
+          normalizedQuery: 'launch',
+          searchPhrases: ['launch'],
+          folderHints: ['30-Projects'],
+          typeHints: ['project'],
+          clarificationQuestion: 'Which launch note do you want',
+        };
+      },
+    },
+  });
+
+  try {
+    const response = await fetch(`${server.baseUrl}/api/orb/retrieve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: 'the beta one',
+        clarification: {
+          previousQuery: 'launch',
+          question: 'Which launch note do you want?',
+        },
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.match(capturedQuery, /Previous retrieval query: launch/);
+    assert.match(capturedQuery, /Clarification question: Which launch note do you want\?/);
+    assert.match(capturedQuery, /Follow-up answer: the beta one/);
+  } finally {
+    await server.close();
+  }
+});
+
+test('resolves latest reindex report by recency instead of generic token score', async () => {
+  const server = await startTestServer({
+    provider: {
+      async classifyRetrievalIntent() {
+        return {
+          confidence: 'high',
+          normalizedQuery: 'reindex report',
+          searchPhrases: ['latest reindex report', 'reindex report'],
+          folderHints: ['70-Ops'],
+          typeHints: ['ops'],
+          clarificationQuestion: null,
+        };
+      },
+    },
+  });
+
+  try {
+    const response = await fetch(`${server.baseUrl}/api/orb/retrieve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: 'latest reindex report',
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+
+    assert.equal(payload.mode, 'resolved_note');
+    assert.equal(
+      payload.note.path.vaultRelativePath,
+      '70-Ops/health-reports/2026-03-13-reindex-report.md',
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+test('returns candidates for broad latest report queries instead of overconfident direct opens', async () => {
+  const server = await startTestServer({
+    provider: {
+      async classifyRetrievalIntent() {
+        return {
+          confidence: 'high',
+          normalizedQuery: 'report',
+          searchPhrases: ['latest report', 'report'],
+          folderHints: ['70-Ops'],
+          typeHints: ['ops'],
+          clarificationQuestion: null,
+        };
+      },
+    },
+  });
+
+  try {
+    const response = await fetch(`${server.baseUrl}/api/orb/retrieve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: 'latest report',
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+
+    assert.equal(payload.mode, 'candidate_notes');
+    assert.equal(payload.candidates.length, 3);
+    assert.equal(payload.candidates[0].path.vaultRelativePath, '70-Ops/health-reports/2026-03-13-reindex-report.md');
+    assert.match(payload.candidates[0].reason, /2026-03-13/);
   } finally {
     await server.close();
   }
@@ -323,7 +568,6 @@ test('rejects malformed provider intent payloads', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         query: 'open hive conventions',
-        provider: 'openai',
       }),
     });
 
@@ -374,11 +618,9 @@ test('parses fenced provider JSON for the exact psychological profile query', as
       providerTimeoutMs: 1000,
       defaultModels: {
         openai: 'gpt-4.1-mini',
-        gemini: 'gemini-2.5-flash',
       },
       apiKeys: {
         openai: '',
-        gemini: '',
       },
     },
     logger: {
@@ -390,7 +632,6 @@ test('parses fenced provider JSON for the exact psychological profile query', as
     },
     providers: {
       openai: provider,
-      gemini: provider,
     },
   });
 
@@ -403,7 +644,6 @@ test('parses fenced provider JSON for the exact psychological profile query', as
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         query: 'find my psychological profile',
-        provider: 'openai',
         model: 'gpt-4.1-mini',
       }),
     });
@@ -448,11 +688,9 @@ test('returns invalid_json diagnostics and logs raw provider output on parse fai
       providerTimeoutMs: 1000,
       defaultModels: {
         openai: 'gpt-4.1-mini',
-        gemini: 'gemini-2.5-flash',
       },
       apiKeys: {
         openai: '',
-        gemini: '',
       },
     },
     logger: {
@@ -464,7 +702,6 @@ test('returns invalid_json diagnostics and logs raw provider output on parse fai
     },
     providers: {
       openai: provider,
-      gemini: provider,
     },
   });
 
@@ -477,7 +714,6 @@ test('returns invalid_json diagnostics and logs raw provider output on parse fai
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         query: 'find my psychological profile',
-        provider: 'openai',
         model: 'gpt-4.1-mini',
       }),
     });

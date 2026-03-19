@@ -1,4 +1,3 @@
-export const PROVIDERS = ['openai', 'gemini'];
 export const CONFIDENCE_LEVELS = ['high', 'medium', 'low'];
 export const RESULT_TYPES = [
   'resolved_note',
@@ -24,12 +23,20 @@ export const HIVE_FOLDERS = [
 export const ORB_REQUEST_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['query', 'provider'],
+  required: ['query'],
   properties: {
     query: { type: 'string', minLength: 1, maxLength: 500 },
-    provider: { type: 'string', enum: PROVIDERS },
     model: { type: 'string', minLength: 1, maxLength: 128 },
     maxCandidates: { type: 'integer', minimum: 3, maximum: 5 },
+    clarification: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['previousQuery', 'question'],
+      properties: {
+        previousQuery: { type: 'string', minLength: 1, maxLength: 500 },
+        question: { type: 'string', minLength: 1, maxLength: 160 },
+      },
+    },
   },
 };
 
@@ -152,15 +159,17 @@ export function validateRetrieveRequest(body) {
     });
   }
 
-  const query = ensureString(body.query, 'query', { min: 1, max: 500 });
-  const provider = ensureString(body.provider, 'provider', { min: 1, max: 32 });
-  if (!PROVIDERS.includes(provider)) {
-    throw createHttpError(400, 'Unsupported provider', {
-      field: 'provider',
-      reason: 'unsupported_provider',
-      supportedProviders: PROVIDERS,
-    });
+  const allowedFields = new Set(['query', 'model', 'maxCandidates', 'clarification']);
+  for (const key of Object.keys(body)) {
+    if (!allowedFields.has(key)) {
+      throw createHttpError(400, 'Unexpected request field', {
+        field: key,
+        reason: 'unexpected_field',
+      });
+    }
   }
+
+  const query = ensureString(body.query, 'query', { min: 1, max: 500 });
 
   let model = null;
   if (body.model != null) {
@@ -186,7 +195,38 @@ export function validateRetrieveRequest(body) {
     maxCandidates = body.maxCandidates;
   }
 
-  return { query, provider, model, maxCandidates };
+  let clarification = null;
+  if (body.clarification != null) {
+    if (!isPlainObject(body.clarification)) {
+      throw createHttpError(400, 'Invalid clarification', {
+        field: 'clarification',
+        reason: 'expected_object',
+      });
+    }
+
+    const clarificationFields = new Set(['previousQuery', 'question']);
+    for (const key of Object.keys(body.clarification)) {
+      if (!clarificationFields.has(key)) {
+        throw createHttpError(400, 'Invalid clarification', {
+          field: `clarification.${key}`,
+          reason: 'unexpected_field',
+        });
+      }
+    }
+
+    clarification = {
+      previousQuery: ensureString(body.clarification.previousQuery, 'clarification.previousQuery', {
+        min: 1,
+        max: 500,
+      }),
+      question: ensureString(body.clarification.question, 'clarification.question', {
+        min: 1,
+        max: 160,
+      }),
+    };
+  }
+
+  return { query, model, maxCandidates, clarification };
 }
 
 function ensureEnum(value, field, choices) {

@@ -72,3 +72,15 @@ When a new lesson is needed, append it using:
 - **Mistake:** Pushing uncertainty back to Jason before doing obvious discovery work yourself.
 - **Fix:** Investigate first, answer directly, then ask only the question that remains necessary.
 - **Rule:** Bring Jason a conclusion or a narrowed decision, not raw ambiguity.
+
+### L-011: Never stack ambient bobbing onto world navigation
+- **Context:** Vergil idle and patrol motion in the live scene.
+- **Mistake:** Applying hover directly to the actor's world position after steering, which makes ambient motion read as twitchy and unstable.
+- **Fix:** Keep navigation on the world/root transform and move hover or sway into a separate visual rig or child layer.
+- **Rule:** Ambient float belongs on a presentation layer, not the navigation transform.
+
+### L-012: Stop immediately on repo or worktree mismatch
+- **Context:** Visual work split between the real galaxy-skybox worktree and an older donor prototype repo.
+- **Mistake:** Continuing implementation after signs that the active repo was not the one the user meant, which produced valid work in the wrong place.
+- **Fix:** Verify the absolute repo path before substantial edits and stop the moment the runtime, files, or visuals do not match the active product branch.
+- **Rule:** If the repo identity is in doubt, pause and verify the exact worktree before writing code.

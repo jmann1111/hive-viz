@@ -1,5 +1,4 @@
 import { createHttpError } from '../schemas.js';
-import { GeminiProvider } from './gemini.js';
 import { OpenAIProvider } from './openai.js';
 
 export function createProviderRegistry(config, { fetchImpl = fetch, logger = null } = {}) {
@@ -10,21 +9,15 @@ export function createProviderRegistry(config, { fetchImpl = fetch, logger = nul
       fetchImpl,
       logger,
     }),
-    gemini: new GeminiProvider({
-      apiKey: config.apiKeys.gemini,
-      timeoutMs: config.providerTimeoutMs,
-      fetchImpl,
-      logger,
-    }),
   };
 }
 
-export function getProviderClient(registry, providerName) {
-  const client = registry?.[providerName];
+export function getProviderClient(registry) {
+  const client = registry?.openai;
   if (!client) {
-    throw createHttpError(400, 'Unsupported provider', {
+    throw createHttpError(500, 'OpenAI provider is not configured', {
       field: 'provider',
-      reason: 'unknown_provider',
+      reason: 'missing_openai_provider',
     });
   }
   return client;

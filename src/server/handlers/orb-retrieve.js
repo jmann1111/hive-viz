@@ -9,6 +9,26 @@ import {
 } from '../schemas.js';
 import { resolveRetrieval } from '../retrieval/index.js';
 
+function buildProviderQuery(request) {
+  if (!request.clarification) {
+    return request.query;
+  }
+
+  return [
+    `Previous retrieval query: ${request.clarification.previousQuery}`,
+    `Clarification question: ${request.clarification.question}`,
+    `Follow-up answer: ${request.query}`,
+  ].join('\n');
+}
+
+function buildFallbackQuery(request) {
+  if (!request.clarification) {
+    return request.query;
+  }
+
+  return `${request.clarification.previousQuery} ${request.query}`.trim();
+}
+
 async function readJsonBody(req) {
   const chunks = [];
 
@@ -51,23 +71,26 @@ export function createOrbRetrieveHandler({ config, logger, providers, index }) {
     try {
       const body = await readJsonBody(req);
       const request = validateRetrieveRequest(body);
-      const model = request.model || config.defaultModels[request.provider];
-      const provider = getProviderClient(providers, request.provider);
+      const providerName = 'openai';
+      const model = request.model || config.defaultModels.openai;
+      const provider = getProviderClient(providers);
+      const providerQuery = buildProviderQuery(request);
 
       logger.info('orb.retrieve.request', {
         requestId,
-        provider: request.provider,
+        provider: providerName,
         model,
         queryHash: hashQuery(request.query),
         queryLength: request.query.length,
+        hasClarification: Boolean(request.clarification),
       });
 
       const rawIntent = await provider.classifyRetrievalIntent({
-        query: request.query,
+        query: providerQuery,
         model,
       });
       const intent = normalizeIntentPayload(rawIntent, {
-        providerName: request.provider,
+        providerName,
         logger,
         model,
       });
@@ -76,13 +99,13 @@ export function createOrbRetrieveHandler({ config, logger, providers, index }) {
         vaultRoot: config.vaultRoot,
         index,
         intent,
-        query: request.query,
+        query: buildFallbackQuery(request),
         maxCandidates: request.maxCandidates,
       });
 
       const payload = {
         requestId,
-        provider: request.provider,
+        provider: providerName,
         model,
         latencyMs: Date.now() - startedAt,
         intent: {
@@ -103,7 +126,7 @@ export function createOrbRetrieveHandler({ config, logger, providers, index }) {
 
       logger.info('orb.retrieve.result', {
         requestId,
-        provider: request.provider,
+        provider: providerName,
         model,
         latencyMs: payload.latencyMs,
         mode: payload.mode,

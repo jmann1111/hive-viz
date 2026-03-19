@@ -2,6 +2,12 @@
 
 This rubric keeps provider comparison grounded in retrieval behavior instead of essay quality.
 
+## Sprint Context
+
+- The live retrieval contract for this sprint is OpenAI-only.
+- Gemini is deferred and should not appear in the active contract framing.
+- Fixture lanes are for sanity and regression checking against the current API shape, not model competition.
+
 ## Weighted Score
 
 Total score is normalized to 100 using only the metrics that are available for a given run.
@@ -79,6 +85,7 @@ Count as hallucinations:
 Do not count as hallucinations:
 - wrong choice among real files
 - conservative clarify behavior
+- conservative candidate narrowing for broad latest or recent queries
 
 Provider metrics:
 - `hallucination_rate = invalid_artifacts / total_artifacts`
@@ -92,6 +99,7 @@ Desired behavior:
 - `resolve + high` when confidence is high
 - `candidates + medium` when confidence is medium
 - `clarify + low` when confidence is low
+- broad latest or recent queries may intentionally narrow to candidates instead of overcommitting
 
 Case score:
 - `1.00` when action and confidence both match the gold expectation

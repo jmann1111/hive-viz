@@ -40,12 +40,10 @@ export function loadConfig(env = process.env) {
       DEFAULT_PROVIDER_TIMEOUT_MS,
     ),
     defaultModels: {
-      openai: env.OPENAI_MODEL || 'gpt-4.1-mini',
-      gemini: env.GEMINI_MODEL || 'gemini-2.5-flash',
+      openai: env.OPENAI_MODEL || 'gpt-5.4-mini',
     },
     apiKeys: {
       openai: env.OPENAI_API_KEY || '',
-      gemini: env.GEMINI_API_KEY || '',
     },
   };
 }

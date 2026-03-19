@@ -5,6 +5,10 @@ function toScore(value) {
   return Number.isFinite(score) ? score : 0;
 }
 
+function normalizeText(value) {
+  return String(value || '').trim();
+}
+
 export function normalizeRetrievalResponse(raw) {
   if (!raw || typeof raw !== 'object') {
     throw new Error('Orb returned an empty response.');
@@ -75,11 +79,13 @@ export function normalizeRetrievalResponse(raw) {
       confidence: raw.confidence || 'medium',
       candidates: (Array.isArray(raw.candidates) ? raw.candidates : []).slice(0, 5).map((candidate) => ({
         nodeId: String(candidate?.nodeId || ''),
-        title: String(candidate?.title || ''),
-        path: String(candidate?.path?.vaultRelativePath || ''),
-        folder: String(candidate?.folder || ''),
+        title: normalizeText(candidate?.title),
+        path: normalizeText(candidate?.path?.vaultRelativePath),
+        folder: normalizeText(candidate?.folder),
+        dateLabel: normalizeText(candidate?.dateLabel),
         score: toScore(candidate?.score),
-        reason: String(candidate?.reason || ''),
+        excerpt: normalizeText(candidate?.excerpt),
+        reason: normalizeText(candidate?.reason),
       })),
     };
   }
@@ -88,10 +94,11 @@ export function normalizeRetrievalResponse(raw) {
     return {
       intent: 'clarification',
       confidence: raw.confidence || 'low',
-      question: String(raw.question || '').trim() || 'Which note did you mean?',
+      question: normalizeText(raw.question) || 'Which note did you mean?',
       candidateHints: (Array.isArray(raw.candidateHints) ? raw.candidateHints : []).slice(0, 3).map((candidate) => ({
-        title: String(candidate?.title || ''),
-        path: String(candidate?.path?.vaultRelativePath || ''),
+        title: normalizeText(candidate?.title),
+        path: normalizeText(candidate?.path),
+        reason: normalizeText(candidate?.reason),
       })),
     };
   }
@@ -101,21 +108,37 @@ export function normalizeRetrievalResponse(raw) {
 
 export function createRetrievalClient(options = {}) {
   const endpoint = options.endpoint || import.meta.env.VITE_ORB_RETRIEVAL_URL || DEFAULT_ENDPOINT;
-  const defaultProvider = options.provider || import.meta.env.VITE_ORB_PROVIDER || 'openai';
 
   return {
     endpoint,
-    async retrieve(query, _context = null, requestOptions = {}) {
+    async retrieve(query, context = null, requestOptions = {}) {
+      const payload = {
+        query: normalizeText(query),
+        maxCandidates: requestOptions.maxCandidates || 5,
+      };
+
+      if (requestOptions.model) {
+        payload.model = normalizeText(requestOptions.model);
+      }
+
+      if (
+        context
+        && typeof context === 'object'
+        && normalizeText(context.previousQuery)
+        && normalizeText(context.question)
+      ) {
+        payload.clarification = {
+          previousQuery: normalizeText(context.previousQuery),
+          question: normalizeText(context.question),
+        };
+      }
+
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          query: String(query || '').trim(),
-          provider: requestOptions.provider || defaultProvider,
-          maxCandidates: requestOptions.maxCandidates || 5,
-        }),
+        body: JSON.stringify(payload),
       });
 
       let body = null;

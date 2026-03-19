@@ -60,17 +60,28 @@
   </div>
   <script>
     const HASH = 'c228c20098d2ebb911206e5ce2806d3271c022cee9cd9c2393d9221a2ea7f817';
+    const IS_LOCAL_DEV = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+
+    function unlockHive() {
+      document.getElementById('gate').style.display = 'none';
+      document.getElementById('layout').style.display = 'flex';
+      window.__hiveUnlocked = true;
+      window.dispatchEvent(new Event('hive-unlock'));
+    }
+
     async function check(pw) {
       const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw));
       return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('') === HASH;
     }
+
+    if (IS_LOCAL_DEV) {
+      unlockHive();
+    }
+
     document.getElementById('gate-pw').addEventListener('keydown', async (e) => {
       if (e.key !== 'Enter') return;
       if (await check(e.target.value)) {
-        document.getElementById('gate').style.display = 'none';
-        document.getElementById('layout').style.display = 'flex';
-        window.__hiveUnlocked = true;
-        window.dispatchEvent(new Event('hive-unlock'));
+        unlockHive();
       } else {
         document.getElementById('gate-err').textContent = 'Wrong password';
         e.target.value = '';

@@ -11,6 +11,14 @@ function cleanFolderName(folder) {
 export function createSidebar(tesseract, onSelect, onSelectCallbacks, openReader, onSearchHighlight) {
   const sidebar = document.getElementById('sidebar');
   const folderMap = tesseract.getNodesByFolder();
+  const handlers = typeof onSelect === 'function'
+    ? { onNavigate: onSelect }
+    : (onSelect || {});
+  const onNavigate = handlers.onNavigate || handlers.selectNode || (() => {});
+  const onOpenNode = handlers.onOpenNode || ((nodeId, options = {}) => {
+    onNavigate(nodeId, options);
+    openInlineReader(nodeId);
+  });
 
   // Build HTML
   sidebar.innerHTML = `
@@ -84,11 +92,16 @@ export function createSidebar(tesseract, onSelect, onSelectCallbacks, openReader
         item.innerHTML = `<span class="sb-node-title">${node.title || node.id}</span>${node.linkCount > 0 ? `<span class="sb-node-links">${node.linkCount}</span>` : ''}`;
         item.addEventListener('click', () => {
           focusIndex = visibleItems.indexOf(visibleItems.find(v => v.nodeId === node.id));
-          onSelect(node.id);
-          if (readerPanel.classList.contains('open')) openInlineReader(node.id);
+          onNavigate(node.id, {
+            source: 'sidebar',
+            openOnArrival: false,
+          });
         });
         item.addEventListener('dblclick', () => {
-          openInlineReader(node.id);
+          onOpenNode(node.id, {
+            source: 'sidebar',
+            openOnArrival: true,
+          });
         });
         list.appendChild(item);
       }
@@ -148,8 +161,10 @@ export function createSidebar(tesseract, onSelect, onSelectCallbacks, openReader
 
     // If it's a node, select in graph. Update reader only if already open.
     if (item.type === 'node' && item.nodeId) {
-      onSelect(item.nodeId);
-      if (readerPanel.classList.contains('open')) openInlineReader(item.nodeId);
+      onNavigate(item.nodeId, {
+        source: 'sidebar',
+        openOnArrival: false,
+      });
     }
   }
 
@@ -186,7 +201,10 @@ export function createSidebar(tesseract, onSelect, onSelectCallbacks, openReader
         item.detailsEl.open = !item.detailsEl.open;
         rebuildNavItems();
       } else if (item?.type === 'node') {
-        openInlineReader(item.nodeId);
+        onOpenNode(item.nodeId, {
+          source: 'sidebar',
+          openOnArrival: true,
+        });
       }
     }
   });
@@ -329,7 +347,10 @@ export function createSidebar(tesseract, onSelect, onSelectCallbacks, openReader
           );
           if (linkedNode) {
             openInlineReader(linkedNode.id, true);
-            onSelect(linkedNode.id);
+            onNavigate(linkedNode.id, {
+              source: 'sidebar',
+              openOnArrival: false,
+            });
           }
         });
       });
@@ -431,7 +452,12 @@ export function createSidebar(tesseract, onSelect, onSelectCallbacks, openReader
       const q = searchInput.value.trim();
       if (q.length >= 2) {
         const hits = tesseract.search(q);
-        if (hits.length > 0) onSelect(hits[0].id);
+        if (hits.length > 0) {
+          onNavigate(hits[0].id, {
+            source: 'sidebar-search',
+            openOnArrival: false,
+          });
+        }
       }
     }
     if (e.key === 'Escape') {
@@ -463,7 +489,14 @@ export function createSidebar(tesseract, onSelect, onSelectCallbacks, openReader
       </div>
     `).join('');
     detailEl.querySelectorAll('.sb-search-result').forEach(el => {
-      el.addEventListener('click', () => onSelect(el.dataset.nodeId));
+      el.addEventListener('click', () => onNavigate(el.dataset.nodeId, {
+        source: 'sidebar-search',
+        openOnArrival: false,
+      }));
+      el.addEventListener('dblclick', () => onOpenNode(el.dataset.nodeId, {
+        source: 'sidebar-search',
+        openOnArrival: true,
+      }));
     });
   }
 
@@ -533,21 +566,25 @@ export function createSidebar(tesseract, onSelect, onSelectCallbacks, openReader
 
       detailEl.querySelectorAll('.sb-neighbor').forEach(el => {
         el.addEventListener('click', () => {
-          onSelect(el.dataset.nodeId);
-          if (readerPanel.classList.contains('open')) openInlineReader(el.dataset.nodeId);
+          onNavigate(el.dataset.nodeId, {
+            source: 'sidebar-detail',
+            openOnArrival: false,
+          });
         });
       });
 
       const readBtn = detailEl.querySelector('.sb-read-btn');
       if (readBtn) {
-        readBtn.addEventListener('click', () => openInlineReader(readBtn.dataset.nodeId));
+        readBtn.addEventListener('click', () => onOpenNode(readBtn.dataset.nodeId, {
+          source: 'sidebar-detail',
+          openOnArrival: true,
+        }));
       }
     }
   }
 
   onSelectCallbacks.push((nodeId) => {
     showNodeDetail(nodeId);
-    if (nodeId && readerPanel.classList.contains('open')) openInlineReader(nodeId);
   });
 
   return {

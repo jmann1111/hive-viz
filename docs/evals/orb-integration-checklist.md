@@ -1,6 +1,13 @@
 # Orb Integration Checklist
 
-This checklist ties together the direct chat endpoint, retrieval engine, orb UI, and provider comparison loop.
+This checklist ties together the direct chat endpoint, retrieval engine, orb UI, and the fixture sanity loop for the OpenAI-only sprint.
+
+## Sprint Framing
+
+- [ ] The live orb retrieval endpoint is OpenAI-only
+- [ ] Gemini stays deferred for this sprint
+- [ ] The fixture lanes are for contract sanity, not provider competition
+- [ ] The current top-level response shape is `mode`, `confidence`, `note`, `candidates`, `question`, and `candidateHints`
 
 ## Architecture Contract
 
@@ -20,6 +27,8 @@ This checklist ties together the direct chat endpoint, retrieval engine, orb UI,
 - [ ] High confidence resolves directly
 - [ ] Medium confidence returns 3 to 5 candidates
 - [ ] Low confidence asks one narrow clarifying question
+- [ ] Latest and recent intent is handled explicitly, not by accidental token overlap
+- [ ] Candidate payloads carry readable context such as date, excerpt, and reason
 - [ ] Response payload stays short enough for the orb to feel minimal
 
 ## Frontend Orb
@@ -33,12 +42,12 @@ This checklist ties together the direct chat endpoint, retrieval engine, orb UI,
 
 ## Provider Comparison
 
-- [ ] All providers are tested against the same `docs/evals/orb-benchmark-pack.json`
-- [ ] All providers are normalized to the same response contract before scoring
+- [ ] The fixture lanes are tested against the same `docs/evals/orb-benchmark-pack.json`
+- [ ] The harness normalizes the current top-level API shape before scoring
 - [ ] Comparison uses the actual current graph for path validation
 - [ ] Objective scores and subjective telepathic scores are reported separately
 - [ ] Hallucination events are listed explicitly, not hidden inside averages
-- [ ] Failing providers are rejected on readiness bars even if the weighted average looks decent
+- [ ] Failing lanes are rejected on readiness bars even if the weighted average looks decent
 
 ## Current Endpoint Mapping
 
@@ -47,8 +56,12 @@ Current request body at `/api/orb/retrieve`:
 ```json
 {
   "query": "open SOUL",
-  "provider": "openai",
-  "maxCandidates": 5
+  "model": "gpt-4.1-mini",
+  "maxCandidates": 5,
+  "clarification": {
+    "previousQuery": "open SOUL",
+    "question": "Which SOUL note did you mean?"
+  }
 }
 ```
 
@@ -60,37 +73,40 @@ Current response shape:
   "provider": "openai",
   "model": "gpt-4.1-mini",
   "latencyMs": 812,
-  "intent": {
-    "target": "SOUL",
-    "queryType": "note",
-    "reason": "exact note target",
-    "confidence": "high",
-    "mode": "resolve",
-    "clarificationQuestion": null
+  "mode": "resolved_note",
+  "confidence": "high",
+  "note": {
+    "path": {
+      "vaultRelativePath": "60-Knowledge/walt-config/SOUL.md",
+      "absolutePath": "/Users/jasonmann/Documents/The-Hive-Sync/60-Knowledge/walt-config/SOUL.md"
+    },
+    "title": "SOUL.md - Who You Are",
+    "dateLabel": "2026-03-06",
+    "excerpt": "Walt personality and operating core.",
+    "reason": "2026-03-06 - 60-Knowledge - knowledge: Walt personality and operating core."
   },
-  "result": {
-    "type": "resolved_note",
-    "note": {
-      "path": "60-Knowledge/walt-config/SOUL.md",
-      "title": "SOUL.md - Who You Are"
-    }
+  "retrieval": {
+    "rankedCount": 1,
+    "returnedCount": 1,
+    "invalidPathCount": 0
   }
 }
 ```
 
 Normalization used by the harness:
 
-- `intent.mode=resolve` => `action=resolve`, `resolved=result.note`
-- `intent.mode=candidates` => `action=candidates`, `candidates=result.candidates`
-- `intent.mode=clarify` => `action=clarify`, `question=result.question`
+- `mode=resolved_note` => `action=resolve`, `resolved=note`
+- `mode=candidate_notes` => `action=candidates`, `candidates=candidates`
+- `mode=clarification_request` => `action=clarify`, `question=question`, `candidateHints=candidateHints`
+- Legacy fixture payloads may still use `action=resolve|candidates|clarify` during report generation
 
 ## Recommended Comparison Loop
 
-1. Re-extract `public/graph.json` from the latest vault state.
-2. Start the orb API server if you are evaluating live providers.
-3. Run the benchmark pack through each provider using the same endpoint.
+1. Re-extract `public/graph.json` from the latest vault state if the graph changed.
+2. Start the orb API server if you are evaluating the live endpoint.
+3. Run the benchmark pack through the OpenAI-only endpoint or the fixture lanes with the same contract.
 4. Inspect the hallucination list first.
 5. Compare exact-hit accuracy and confidence behavior next.
-6. Review candidate ordering on the medium-confidence cases.
+6. Review candidate ordering and readability on the medium-confidence cases.
 7. Add telepathic feel ratings only after the objective pass.
-8. Ship only the provider that clears the readiness bars in the scoring rubric.
+8. Ship only the lane that clears the readiness bars in the scoring rubric.

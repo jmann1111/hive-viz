@@ -1,7 +1,7 @@
 {
   "benchmark": "orb-retrieval-benchmark-v1",
   "graph": "public/graph.json",
-  "generated_at": "2026-03-18T00:11:38.974Z",
+  "generated_at": "2026-03-18T07:37:30.470Z",
   "summaries": [
     {
       "provider": "fixture-gold",
@@ -135,7 +135,7 @@
         },
         {
           "id": "candidate_memory_service",
-          "query": "open memory service",
+          "query": "open the latest memory service note",
           "expected_action": "candidates",
           "actual_action": "candidates",
           "latency_ms": 1020,
@@ -329,7 +329,7 @@
         },
         {
           "id": "direct_reindex_report",
-          "query": "open the March 13 reindex report",
+          "query": "open the latest reindex report",
           "expected_action": "resolve",
           "actual_action": "resolve",
           "latency_ms": 830,
@@ -352,7 +352,7 @@
         },
         {
           "id": "direct_daily_psych_index",
-          "query": "open the daily psych index",
+          "query": "open the latest daily psych index",
           "expected_action": "resolve",
           "actual_action": "resolve",
           "latency_ms": 820,
@@ -621,7 +621,7 @@
         },
         {
           "id": "candidate_memory_service",
-          "query": "open memory service",
+          "query": "open the latest memory service note",
           "expected_action": "candidates",
           "actual_action": "resolve",
           "latency_ms": 3280,
@@ -821,7 +821,7 @@
         },
         {
           "id": "direct_reindex_report",
-          "query": "open the March 13 reindex report",
+          "query": "open the latest reindex report",
           "expected_action": "resolve",
           "actual_action": "clarify",
           "latency_ms": 3840,
@@ -841,7 +841,7 @@
         },
         {
           "id": "direct_daily_psych_index",
-          "query": "open the daily psych index",
+          "query": "open the latest daily psych index",
           "expected_action": "resolve",
           "actual_action": "resolve",
           "latency_ms": 2660,

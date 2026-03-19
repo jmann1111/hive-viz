@@ -13,6 +13,8 @@ const SYSTEM_PROMPT = [
   '- low: one narrow clarification question is required',
   'Keep normalizedQuery and searchPhrases short.',
   'Use folderHints and typeHints only when explicit.',
+  'Treat latest, recent, newest, today, and yesterday as retrieval constraints.',
+  'If a clarification follow-up is provided, use it only to narrow the retrieval target.',
 ].join('\n');
 
 export function getRetrievalIntentSystemPrompt() {

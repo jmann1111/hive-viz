@@ -1,6 +1,7 @@
 {
   "version": "orb-retrieval-benchmark-v1",
   "description": "Canonical retrieval-first benchmark pack for the Hive orb. Paths are vault-relative and must validate against the current graph before UI action.",
+  "sprint_framing": "OpenAI-only retrieval sprint. Gemini is deferred, and the fixture lanes exist only as harness sanity checks against the current contract.",
   "generated_from_graph": {
     "path": "public/graph.json",
     "total_nodes": 1447,
@@ -10,6 +11,7 @@
     "version": "orb-retrieval-response-v1",
     "rules": [
       "Return retrieval intent, not archive essays.",
+      "Current live API shape uses top-level mode, confidence, note, candidates, question, and candidateHints.",
       "Allowed actions after normalization: resolve, candidates, clarify.",
       "Resolved and candidate paths must be valid vault-relative paths that exist in the current graph.",
       "Use high confidence only when you can resolve directly.",
@@ -26,10 +28,20 @@
       "candidates": [
         {
           "path": "string",
-          "title": "string"
+          "title": "string",
+          "dateLabel": "string",
+          "excerpt": "string",
+          "reason": "string"
         }
       ],
-      "question": "string"
+      "question": "string",
+      "candidateHints": [
+        {
+          "title": "string",
+          "path": "string",
+          "reason": "string"
+        }
+      ]
     }
   },
   "cases": [
@@ -91,8 +103,8 @@
     {
       "id": "candidate_memory_service",
       "category": "candidate-list",
-      "query": "open memory service",
-      "why": "There is a system doc plus several closely related session logs. The right move is a ranked shortlist, not a forced single answer.",
+      "query": "open the latest memory service note",
+      "why": "The recency word should still produce a ranked shortlist instead of a wrong direct open.",
       "gold": {
         "action": "candidates",
         "confidence": "medium",
@@ -183,8 +195,8 @@
     {
       "id": "direct_reindex_report",
       "category": "direct-resolve",
-      "query": "open the March 13 reindex report",
-      "why": "Tests date grounding and health-report retrieval.",
+      "query": "open the latest reindex report",
+      "why": "Tests recency grounding and health-report retrieval.",
       "gold": {
         "action": "resolve",
         "confidence": "high",
@@ -194,8 +206,8 @@
     {
       "id": "direct_daily_psych_index",
       "category": "direct-resolve",
-      "query": "open the daily psych index",
-      "why": "Folder README that should be reachable through the colloquial alias.",
+      "query": "open the latest daily psych index",
+      "why": "Folder README that should be reachable through the colloquial alias and date recency.",
       "gold": {
         "action": "resolve",
         "confidence": "high",

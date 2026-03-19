@@ -85,43 +85,67 @@ function validateBenchmark(benchmark, graphIndex) {
 }
 
 function normalizeOrbApiResponse(payload) {
-  const mode = payload?.intent?.mode;
-  const confidence = payload?.intent?.confidence ?? null;
-  if (mode === 'resolve') {
+  const mode = payload?.mode;
+  const confidence = payload?.confidence ?? null;
+
+  function normalizePath(value) {
+    if (!value) return null;
+    if (typeof value === 'string') return value;
+    if (typeof value === 'object') {
+      return value.vaultRelativePath ?? value.path ?? null;
+    }
+    return null;
+  }
+
+  if (mode === 'resolved_note') {
     return {
       action: 'resolve',
       confidence,
-      resolved: payload?.result?.note
+      resolved: payload?.note
         ? {
-            path: payload.result.note.path ?? null,
-            title: payload.result.note.title ?? null
+            path: normalizePath(payload.note.path),
+            title: payload.note.title ?? null,
+            dateLabel: payload.note.dateLabel ?? null,
+            excerpt: payload.note.excerpt ?? null,
+            reason: payload.note.reason ?? null
           }
         : null,
       candidates: [],
       question: ''
     };
   }
-  if (mode === 'candidates') {
+  if (mode === 'candidate_notes') {
     return {
       action: 'candidates',
       confidence,
       resolved: null,
-      candidates: Array.isArray(payload?.result?.candidates)
-        ? payload.result.candidates.map((candidate) => ({
-            path: candidate.path ?? null,
-            title: candidate.title ?? null
+      candidates: Array.isArray(payload?.candidates)
+        ? payload.candidates.map((candidate) => ({
+            path: normalizePath(candidate.path),
+            title: candidate.title ?? null,
+            dateLabel: candidate.dateLabel ?? null,
+            excerpt: candidate.excerpt ?? null,
+            reason: candidate.reason ?? null
           }))
         : [],
-      question: ''
+      question: '',
+      candidateHints: []
     };
   }
-  if (mode === 'clarify') {
+  if (mode === 'clarification_request') {
     return {
       action: 'clarify',
       confidence,
       resolved: null,
       candidates: [],
-      question: payload?.result?.question ?? ''
+      question: payload?.question ?? '',
+      candidateHints: Array.isArray(payload?.candidateHints)
+        ? payload.candidateHints.map((candidate) => ({
+            title: candidate?.title ?? null,
+            path: normalizePath(candidate?.path),
+            reason: candidate?.reason ?? null
+          }))
+        : []
     };
   }
   return null;
@@ -320,7 +344,6 @@ async function executeProviderCase(provider, testCase) {
       timeoutMs: provider.timeout_ms ?? 10000,
       body: {
         query: testCase.query,
-        provider: provider.provider,
         model: provider.model ?? null,
         maxCandidates: provider.maxCandidates ?? 5
       }

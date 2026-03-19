@@ -2,6 +2,12 @@
 // Stripped corridors/biomes. Pure graph data + d3-force-3d layout.
 
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from 'd3-force-3d';
+import {
+  buildPresetCoordinates,
+  enrichLayoutRecords,
+  LAYOUT_PRESETS,
+  normalizeLayoutPreset,
+} from './layout-presets.js';
 
 const SKIP_PATHS = ['60-Knowledge/raw-data'];
 const VAULT_ROOT_PREFIXES = [
@@ -16,6 +22,24 @@ export const FOLDER_ORDER = [
   '60-Knowledge', '70-Ops', '80-Secure', '99-Templates',
 ];
 
+function getEdgePairKey(aNodeId, bNodeId) {
+  const a = String(aNodeId || '');
+  const b = String(bNodeId || '');
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
+}
+
+function createSeededRandom(seed = 1) {
+  let state = (Number(seed) >>> 0) || 1;
+  return () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+}
+
+function normalizeSeed(seed = 1) {
+  return (Number(seed) >>> 0) || 1;
+}
+
 export class Tesseract {
   constructor(graphData) {
     this.nodes = graphData.nodes.filter(n => {
@@ -28,6 +52,7 @@ export class Tesseract {
     this.nodeIndex = new Map();
     this.pathIndex = new Map();
     this.adjacency = new Map();
+    this.edgeIndexByPair = new Map();
 
     for (const n of this.nodes) {
       this.nodeIndex.set(n.id, n);
@@ -41,31 +66,65 @@ export class Tesseract {
 
   _buildAdjacency() {
     for (const n of this.nodes) this.adjacency.set(n.id, new Set());
-    for (const e of this.edges) {
+    this.edgeIndexByPair.clear();
+    for (let i = 0; i < this.edges.length; i++) {
+      const e = this.edges[i];
       this.adjacency.get(e.source)?.add(e.target);
       this.adjacency.get(e.target)?.add(e.source);
+      this.edgeIndexByPair.set(getEdgePairKey(e.source, e.target), i);
     }
   }
 
   // Run d3-force-3d simulation, returns when converged
   // Stores x, y, z on each node object
-  layoutGraph() {
+  layoutGraph(options = {}) {
+    const {
+      seed = null,
+      scaleTarget = 14000,
+      randomize = seed != null,
+      preset = null,
+    } = options;
+    const normalizedPreset = preset ? normalizeLayoutPreset(preset) : null;
+    if (normalizedPreset) {
+      return this._applyPresetLayout(normalizedPreset, {
+        seed: normalizeSeed(seed ?? Date.now()),
+        scaleTarget,
+      });
+    }
+    const random = randomize ? createSeededRandom(seed) : Math.random;
+
     // d3-force-3d mutates the nodes/edges arrays, so make copies with refs
-    const simNodes = this.nodes.map(n => ({
-      id: n.id,
-      _node: n, // back-reference
-    }));
+    const simNodes = this.nodes.map((n) => {
+      const simNode = {
+        id: n.id,
+        _node: n, // back-reference
+      };
+      if (randomize) {
+        const theta = random() * Math.PI * 2;
+        const phi = Math.acos((random() * 2) - 1);
+        const radius = 40 + (random() * 220);
+        simNode.x = radius * Math.sin(phi) * Math.cos(theta);
+        simNode.y = radius * Math.sin(phi) * Math.sin(theta);
+        simNode.z = radius * Math.cos(phi);
+      }
+      return simNode;
+    });
     const simNodeMap = new Map(simNodes.map(n => [n.id, n]));
 
     const simLinks = this.edges
       .filter(e => simNodeMap.has(e.source) && simNodeMap.has(e.target))
       .map(e => ({ source: e.source, target: e.target }));
 
+    const linkDistance = randomize ? 92 + (random() * 58) : 120;
+    const linkStrength = randomize ? 0.14 + (random() * 0.12) : 0.2;
+    const chargeStrength = randomize ? -220 - (random() * 150) : -300;
+    const collisionRadius = randomize ? 14 + (random() * 6) : 15;
+
     const sim = forceSimulation(simNodes, 3)
-      .force('link', forceLink(simLinks).id(d => d.id).distance(120).strength(0.2))
-      .force('charge', forceManyBody().strength(-300))
+      .force('link', forceLink(simLinks).id(d => d.id).distance(linkDistance).strength(linkStrength))
+      .force('charge', forceManyBody().strength(chargeStrength))
       .force('center', forceCenter(0, 0, 0))
-      .force('collide', forceCollide(15))
+      .force('collide', forceCollide(collisionRadius))
       .stop();
 
     // Run to convergence
@@ -77,7 +136,7 @@ export class Tesseract {
       const r = Math.sqrt(sn.x * sn.x + sn.y * sn.y + sn.z * sn.z);
       if (r > maxR) maxR = r;
     }
-    const scale = maxR > 0 ? 3000 / maxR : 1;
+    const scale = maxR > 0 ? scaleTarget / maxR : 1;
 
     for (const sn of simNodes) {
       sn._node.x = sn.x * scale;
@@ -94,12 +153,32 @@ export class Tesseract {
     this.simNodes = simNodes;
     this.simNodeMap = simNodeMap;
     this.scale = scale;
+    this.layoutSeed = seed;
+    this.layoutPreset = null;
     // Save original forces for drag restore
     this._originalCharge = sim.force('charge');
     this._originalCenter = sim.force('center');
     this._originalCollide = sim.force('collide');
 
     return this;
+  }
+
+  reshuffleLayout(seed = Date.now()) {
+    return this.layoutGraph({
+      seed,
+      randomize: true,
+    });
+  }
+
+  applyLayoutPreset(preset, options = {}) {
+    const normalizedPreset = normalizeLayoutPreset(preset);
+    const seed = normalizeSeed(options.seed ?? Date.now());
+    const scaleTarget = Number.isFinite(options.scaleTarget) ? options.scaleTarget : 14000;
+    return this._applyPresetLayout(normalizedPreset, { seed, scaleTarget });
+  }
+
+  getAvailableLayoutPresets() {
+    return [...LAYOUT_PRESETS];
   }
 
   // Reheat simulation (for drag interactions)
@@ -223,6 +302,48 @@ export class Tesseract {
       .filter(Boolean);
   }
 
+  getEdgeIndexByPair(aNodeId, bNodeId) {
+    if (!aNodeId || !bNodeId) return null;
+    const edgeIndex = this.edgeIndexByPair.get(getEdgePairKey(aNodeId, bNodeId));
+    return Number.isInteger(edgeIndex) ? edgeIndex : null;
+  }
+
+  getShortestPath(startNodeId, endNodeId) {
+    if (!startNodeId || !endNodeId) return null;
+    if (!this.nodeIndex.has(startNodeId) || !this.nodeIndex.has(endNodeId)) return null;
+    if (startNodeId === endNodeId) return [startNodeId];
+
+    const queue = [startNodeId];
+    const visited = new Set([startNodeId]);
+    const parents = new Map();
+
+    while (queue.length > 0) {
+      const currentId = queue.shift();
+      const neighbors = this.adjacency.get(currentId);
+      if (!neighbors) continue;
+
+      for (const neighborId of neighbors) {
+        if (visited.has(neighborId)) continue;
+        visited.add(neighborId);
+        parents.set(neighborId, currentId);
+
+        if (neighborId === endNodeId) {
+          const path = [endNodeId];
+          let walkId = endNodeId;
+          while (parents.has(walkId)) {
+            walkId = parents.get(walkId);
+            path.push(walkId);
+          }
+          return path.reverse();
+        }
+
+        queue.push(neighborId);
+      }
+    }
+
+    return null;
+  }
+
   getNodesByFolder() {
     const map = new Map();
     for (const n of this.nodes) {
@@ -307,5 +428,81 @@ export class Tesseract {
     }
 
     return normalized.replace(/^\/+/, '').replace(/\/+/g, '/');
+  }
+
+  _createSimulation(simNodes, simLinks, options = {}) {
+    const {
+      linkDistance = 120,
+      linkStrength = 0.2,
+      chargeStrength = -300,
+      collisionRadius = 15,
+    } = options;
+
+    return forceSimulation(simNodes, 3)
+      .force('link', forceLink(simLinks).id((d) => d.id).distance(linkDistance).strength(linkStrength))
+      .force('charge', forceManyBody().strength(chargeStrength))
+      .force('center', forceCenter(0, 0, 0))
+      .force('collide', forceCollide(collisionRadius))
+      .stop();
+  }
+
+  _applyPresetLayout(preset, options = {}) {
+    const seed = normalizeSeed(options.seed ?? Date.now());
+    const scaleTarget = Number.isFinite(options.scaleTarget) ? options.scaleTarget : 14000;
+    const records = enrichLayoutRecords(this.nodes, {
+      adjacency: this.adjacency,
+      folderOrder: FOLDER_ORDER,
+    });
+    const coordinates = buildPresetCoordinates(records, { preset, seed });
+    const simNodes = this.nodes.map((node) => {
+      const target = coordinates.get(node.id) || { x: 0, y: 0, z: 0 };
+      return {
+        id: node.id,
+        _node: node,
+        x: target.x,
+        y: target.y,
+        z: target.z,
+      };
+    });
+    const simNodeMap = new Map(simNodes.map((node) => [node.id, node]));
+    const simLinks = this.edges
+      .filter((edge) => simNodeMap.has(edge.source) && simNodeMap.has(edge.target))
+      .map((edge) => ({ source: edge.source, target: edge.target }));
+
+    let maxRadius = 0;
+    for (const simNode of simNodes) {
+      const radius = Math.sqrt((simNode.x * simNode.x) + (simNode.y * simNode.y) + (simNode.z * simNode.z));
+      if (radius > maxRadius) maxRadius = radius;
+    }
+
+    const scale = maxRadius > 0 ? scaleTarget / maxRadius : 1;
+    for (const simNode of simNodes) {
+      simNode._node.x = simNode.x * scale;
+      simNode._node.y = simNode.y * scale;
+      simNode._node.z = simNode.z * scale;
+      simNode._node.vx = 0;
+      simNode._node.vy = 0;
+      simNode._node.vz = 0;
+      simNode._node.linkCount = this.adjacency.get(simNode.id)?.size || 0;
+    }
+
+    const simulation = this._createSimulation(simNodes, simLinks, {
+      linkDistance: 116,
+      linkStrength: 0.18,
+      chargeStrength: -260,
+      collisionRadius: 14,
+    });
+
+    this.simulation = simulation;
+    this.simNodes = simNodes;
+    this.simNodeMap = simNodeMap;
+    this.scale = scale;
+    this.layoutSeed = seed;
+    this.layoutPreset = preset;
+    this._originalCharge = simulation.force('charge');
+    this._originalCenter = simulation.force('center');
+    this._originalCollide = simulation.force('collide');
+
+    return this;
   }
 }
