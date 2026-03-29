@@ -5,6 +5,9 @@ export const LAYOUT_PRESETS = Object.freeze([
   'helix',
   'dna',
   'sacred',
+  'diamond',
+  'pyramid',
+  'crown',
   'temporal-spiral',
 ]);
 
@@ -23,6 +26,15 @@ const PRESET_ALIASES = new Map([
   ['sacred', 'sacred'],
   ['sacred-geometry', 'sacred'],
   ['sacred_geometry', 'sacred'],
+  ['diamond', 'diamond'],
+  ['diamond-shape', 'diamond'],
+  ['diamond_shape', 'diamond'],
+  ['pyramid', 'pyramid'],
+  ['pyramid-shape', 'pyramid'],
+  ['pyramid_shape', 'pyramid'],
+  ['pyramidal', 'pyramid'],
+  ['crown', 'crown'],
+  ['corona', 'crown'],
   ['temporal-spiral', 'temporal-spiral'],
   ['temporal_spiral', 'temporal-spiral'],
   ['temporalspiral', 'temporal-spiral'],
@@ -280,6 +292,95 @@ function buildSacred(records, seed) {
   return positions;
 }
 
+function buildDiamond(records, seed) {
+  const sorted = [...records].sort(compareRecords);
+  const positions = new Map();
+  const count = Math.max(1, sorted.length);
+  const apexAngles = [
+    Math.PI / 4,
+    (Math.PI * 3) / 4,
+    (Math.PI * 5) / 4,
+    (Math.PI * 7) / 4,
+  ];
+
+  sorted.forEach((record, index) => {
+    const t = count === 1 ? 0.5 : index / (count - 1);
+    const vertical = 1 - (t * 2);
+    const silhouette = Math.pow(Math.max(0, 1 - Math.abs(vertical)), 0.72);
+    const baseRadius = 0.24 + (silhouette * (0.92 + (record.folderBand * 0.18) + (record.degreeWeight * 0.08)));
+    const facet = Math.floor(nodeNoise(record, seed, 'diamond-facet') * apexAngles.length) % apexAngles.length;
+    const phase = (nodeNoise(record, seed, 'diamond-phase') * 0.6) - 0.3;
+    const angle = apexAngles[facet] + phase + ((index / Math.max(1, count - 1)) * 0.18);
+    const radial = baseRadius * (0.88 + (silhouette * 0.18));
+    const position = {
+      x: Math.cos(angle) * radial,
+      y: vertical * 1.2,
+      z: Math.sin(angle) * radial,
+    };
+    positions.set(record.id, withJitter(position, record, seed, 0.014));
+  });
+
+  return positions;
+}
+
+function buildPyramid(records, seed) {
+  const sorted = [...records].sort(compareRecords);
+  const positions = new Map();
+  const count = Math.max(1, sorted.length);
+  const sides = [
+    { x: 1, z: 0 },
+    { x: 0, z: 1 },
+    { x: -1, z: 0 },
+    { x: 0, z: -1 },
+  ];
+
+  sorted.forEach((record, index) => {
+    const t = count === 1 ? 0.5 : index / (count - 1);
+    const height = 1 - (t * 2);
+    const baseProgress = clamp01(1 - Math.abs(height));
+    const sideSeed = nodeNoise(record, seed, 'pyramid-side');
+    const sideIndex = Math.floor(sideSeed * sides.length) % sides.length;
+    const nextSide = sides[(sideIndex + 1) % sides.length];
+    const sideBlend = nodeNoise(record, seed, 'pyramid-blend');
+    const side = {
+      x: (sides[sideIndex].x * (1 - sideBlend)) + (nextSide.x * sideBlend),
+      z: (sides[sideIndex].z * (1 - sideBlend)) + (nextSide.z * sideBlend),
+    };
+    const width = 0.18 + (Math.pow(baseProgress, 0.85) * (1.04 + (record.folderBand * 0.16) + (record.degreeWeight * 0.08)));
+    const inset = 0.72 + (nodeNoise(record, seed, 'pyramid-inset') * 0.2);
+    const position = {
+      x: side.x * width * inset,
+      y: height * 1.18,
+      z: side.z * width * inset,
+    };
+    positions.set(record.id, withJitter(position, record, seed, 0.013));
+  });
+
+  return positions;
+}
+
+function buildCrown(records, seed) {
+  const sorted = [...records].sort(compareRecords);
+  const positions = new Map();
+  const count = Math.max(1, sorted.length);
+
+  sorted.forEach((record, index) => {
+    const t = count === 1 ? 0.5 : index / (count - 1);
+    const angle = (t * TAU) + (record.folderBand * 0.34) + (nodeNoise(record, seed, 'crown-angle') * 0.28);
+    const crest = Math.pow(Math.sin((t * TAU * 2.5) + (nodeNoise(record, seed, 'crown-crest') * TAU)), 2);
+    const ring = 0.66 + (record.folderBand * 0.24) + (record.degreeWeight * 0.08) + (crest * 0.24);
+    const height = -0.42 + (crest * 0.92) + ((record.hash - 0.5) * 0.08);
+    const position = {
+      x: Math.cos(angle) * ring,
+      y: height,
+      z: Math.sin(angle) * ring,
+    };
+    positions.set(record.id, withJitter(position, record, seed, 0.012));
+  });
+
+  return positions;
+}
+
 function buildTemporalSpiral(records, seed) {
   const sorted = [...records].sort((a, b) => {
     if (a.timeValue !== b.timeValue) return a.timeValue - b.timeValue;
@@ -325,6 +426,12 @@ export function buildPresetCoordinates(records, options = {}) {
       return buildDna(records, seed);
     case 'sacred':
       return buildSacred(records, seed);
+    case 'diamond':
+      return buildDiamond(records, seed);
+    case 'pyramid':
+      return buildPyramid(records, seed);
+    case 'crown':
+      return buildCrown(records, seed);
     case 'temporal-spiral':
       return buildTemporalSpiral(records, seed);
     case 'cluster':

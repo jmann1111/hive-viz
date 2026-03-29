@@ -114,6 +114,9 @@ const LAYOUT_PRESETS = [
   { value: 'halo_ring', label: 'Halo Ring' },
   { value: 'helix', label: 'Helix' },
   { value: 'dna', label: 'DNA' },
+  { value: 'diamond', label: 'Diamond' },
+  { value: 'pyramid', label: 'Pyramid' },
+  { value: 'crown', label: 'Crown' },
   { value: 'sacred', label: 'Sacred' },
   { value: 'temporal_spiral', label: 'Temporal Spiral' },
 ];

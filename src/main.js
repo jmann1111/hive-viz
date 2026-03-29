@@ -30,6 +30,8 @@ appEl.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x020208);
 scene.fog = new THREE.FogExp2(0x020208, 0.00005);
+const graphRoot = new THREE.Group();
+scene.add(graphRoot);
 
 const camera = new THREE.PerspectiveCamera(60, 1, 1, 42000);
 camera.position.set(980, 420, 1500); // Start inside the galaxy, but preserve the sense of scale
@@ -41,6 +43,7 @@ controls.rotateSpeed = 0.6;
 controls.zoomSpeed = 1.2;
 controls.enablePan = false;
 controls.enableZoom = false;
+controls.enableRotate = false;
 controls.minDistance = 120;
 controls.maxDistance = 15000;
 
@@ -125,18 +128,18 @@ const SELECTION_SETTLE_DURATION = 1.15;
 const SHUFFLE_SETTLE_DURATION = 1.9;
 const GRAPH_CAMERA_DISTANCE_MIN = 920;
 const GRAPH_CAMERA_DISTANCE_MAX = 1880;
-const GRAPH_ZOOM_MAX_FACTOR = 0.68;
+const GRAPH_ZOOM_MAX_FACTOR = 1.3;
 const GRAPH_ZOOM_MIN_FACTOR = 0.02;
-const GRAPH_ZOOM_MAX_DISTANCE_MIN = 1680;
-const GRAPH_ZOOM_MAX_DISTANCE_MAX = 4800;
+const GRAPH_ZOOM_MAX_DISTANCE_MIN = 2400;
+const GRAPH_ZOOM_MAX_DISTANCE_MAX = 16000;
 const CONSTRUCTION_MODE_DURATION_MS = 9 * 60 * 1000;
 
 const FOLLOW_DISTANCE_BANDS = Object.freeze({
   off: { min: 0, max: Infinity, default: 1100 },
   fov: { min: 120, max: 260, default: 176 },
-  close: { min: 300, max: 620, default: 430 },
-  medium: { min: 520, max: 1060, default: 720 },
-  far: { min: 820, max: 1880, default: 1260 },
+  close: { min: 320, max: 760, default: 460 },
+  medium: { min: 560, max: 1360, default: 840 },
+  far: { min: 920, max: 2600, default: 1540 },
 });
 
 let graphRadius = 14000;
@@ -145,6 +148,16 @@ const tempRailPoint = new THREE.Vector3();
 const tempJourneyTarget = new THREE.Vector3();
 const tempJourneyGoal = new THREE.Vector3();
 const tempJourneyOffset = new THREE.Vector3();
+const tempNavigatorFrom = new THREE.Vector3();
+const tempNavigatorTo = new THREE.Vector3();
+const tempNavigatorAxis = new THREE.Vector3();
+const tempFollowDirection = new THREE.Vector3();
+const tempFollowTarget = new THREE.Vector3();
+const tempGraphRotateAxis = new THREE.Vector3();
+const tempGraphRotateAxisY = new THREE.Vector3();
+const tempGraphRotateAxisX = new THREE.Vector3();
+const tempGraphLocal = new THREE.Vector3();
+const tempGraphWorld = new THREE.Vector3();
 
 function callVergil(methodNames, ...args) {
   if (!vergil) return undefined;
@@ -356,7 +369,7 @@ function buildPatrolNodeIds(anchorNodeId = selectedNode) {
 function syncVergilPatrol(anchorNodeId = selectedNode) {
   if (!tesseract) return;
   const points = buildPatrolNodeIds(anchorNodeId)
-    .map((nodeId) => nodeWorldPosition(nodeId))
+    .map((nodeId) => nodeLocalPosition(nodeId))
     .filter(Boolean);
 
   callVergil(['setPatrolNodes', 'setPatrolPoints'], points);
@@ -370,6 +383,30 @@ function computeGraphRadius() {
     if (radius > maxRadius) maxRadius = radius;
   }
   return Math.max(3200, maxRadius);
+}
+
+function computeGraphCentroid() {
+  if (!Array.isArray(tesseract?.nodes) || tesseract.nodes.length === 0) {
+    return new THREE.Vector3();
+  }
+  const center = new THREE.Vector3();
+  for (const node of tesseract.nodes) {
+    center.x += node.x;
+    center.y += node.y;
+    center.z += node.z;
+  }
+  center.multiplyScalar(1 / tesseract.nodes.length);
+  return center;
+}
+
+function graphLocalToWorld(position) {
+  if (!position) return null;
+  return graphRoot.localToWorld(position.clone());
+}
+
+function graphWorldToLocal(position) {
+  if (!position) return null;
+  return graphRoot.worldToLocal(position.clone());
 }
 
 function syncCameraBounds() {
@@ -462,23 +499,56 @@ function applyZoomDelta(deltaY, source = 'canvas') {
   }
 }
 
-function panCameraFromMinimap(normalized) {
-  if (!normalized || !tesseract) return;
+function setZoomRatio(normalized) {
+  const ratio = THREE.MathUtils.clamp(Number(normalized) || 0, 0, 1);
+  const nextDistance = THREE.MathUtils.lerp(zoomBounds.min, zoomBounds.max, ratio);
+  setDesiredCameraDistance(nextDistance);
+  if (followMode === 'off') {
+    const focusTarget = getCameraFocusTarget();
+    const offset = camera.position.clone().sub(focusTarget);
+    if (offset.lengthSq() < 1) {
+      offset.set(0, 0, 1);
+    }
+    offset.setLength(desiredCameraDistance);
+    camera.position.copy(focusTarget).add(offset);
+    controls.target.copy(focusTarget);
+  }
+}
+
+function rotateGraphPresentation(deltaX = 0, deltaY = 0, scale = 1) {
+  if (!tesseract) return;
+  const turnScale = 0.006 * scale;
+  tempGraphRotateAxisY.copy(camera.up).normalize();
+  tempGraphRotateAxisX.set(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
+  const yaw = new THREE.Quaternion().setFromAxisAngle(tempGraphRotateAxisY, -deltaX * turnScale);
+  const pitch = new THREE.Quaternion().setFromAxisAngle(tempGraphRotateAxisX, -deltaY * turnScale);
+  graphRoot.quaternion.premultiply(yaw).premultiply(pitch).normalize();
+  graphRoot.updateMatrixWorld(true);
+}
+
+function orbitCameraFromNavigator({ from, to, deltaX = 0, deltaY = 0 } = {}) {
+  if (!tesseract) return;
   if (followMode !== 'off') {
     setFollowMode('off');
   }
 
-  const extents = computeGraphExtentsXZ();
-  const targetX = THREE.MathUtils.lerp(extents.minX, extents.maxX, normalized.x);
-  const targetZ = THREE.MathUtils.lerp(extents.minZ, extents.maxZ, normalized.y);
-  const currentTarget = getCameraFocusTarget();
-  const deltaX = targetX - currentTarget.x;
-  const deltaZ = targetZ - currentTarget.z;
+  if (from && to) {
+    tempNavigatorFrom.set(from.x || 0, from.y || 0, from.z || 0);
+    tempNavigatorTo.set(to.x || 0, to.y || 0, to.z || 0);
+    tempNavigatorAxis.crossVectors(tempNavigatorFrom, tempNavigatorTo);
+    const axisLengthSq = tempNavigatorAxis.lengthSq();
+    const dot = THREE.MathUtils.clamp(tempNavigatorFrom.dot(tempNavigatorTo), -1, 1);
+    const angle = Math.acos(dot);
+    if (axisLengthSq > 0.000001 && angle > 0.0005) {
+      tempNavigatorAxis.normalize();
+      const rotation = new THREE.Quaternion().setFromAxisAngle(tempNavigatorAxis, angle * 1.15);
+      graphRoot.quaternion.premultiply(rotation).normalize();
+    }
+  } else if (Math.abs(deltaX) > 0.0001 || Math.abs(deltaY) > 0.0001) {
+    rotateGraphPresentation(deltaX, deltaY, 1.3);
+  }
 
-  controls.target.x += deltaX;
-  controls.target.z += deltaZ;
-  camera.position.x += deltaX;
-  camera.position.z += deltaZ;
+  graphRoot.updateMatrixWorld(true);
   cameraGoal = null;
   cameraTarget = null;
   cameraGoalDesired = null;
@@ -556,7 +626,7 @@ function buildConstructionRoute() {
   let previousNodeId = null;
 
   for (const nodeId of itinerary) {
-    const position = nodeWorldPosition(nodeId);
+    const position = nodeLocalPosition(nodeId);
     if (!position) continue;
 
     if (!previousNodeId) {
@@ -567,7 +637,7 @@ function buildConstructionRoute() {
     }
 
     const pathNodeIds = tesseract.getShortestPath(previousNodeId, nodeId) || [previousNodeId, nodeId];
-    const pathPositions = pathNodeIds.map((pathNodeId) => nodeWorldPosition(pathNodeId)).filter(Boolean);
+    const pathPositions = pathNodeIds.map((pathNodeId) => nodeLocalPosition(pathNodeId)).filter(Boolean);
     if (pathPositions.length === 0) continue;
 
     for (let index = 1; index < pathPositions.length; index += 1) {
@@ -838,12 +908,14 @@ function updateFollowCamera() {
     const band = getFollowBand('fov');
     const followDistance = THREE.MathUtils.clamp(desiredCameraDistance || band.default, band.min, band.max);
     desiredCameraDistance = followDistance;
-    const desiredTarget = nextTarget.clone().addScaledVector(forward, followDistance * 1.5);
+    const desiredTarget = nextTarget.clone()
+      .addScaledVector(forward, followDistance * 0.62)
+      .add(new THREE.Vector3(0, Math.max(14, followDistance * 0.09), 0));
     const desiredPosition = nextTarget.clone()
-      .addScaledVector(forward, -followDistance)
-      .add(new THREE.Vector3(0, Math.max(46, followDistance * 0.42), 0));
-    controls.target.lerp(desiredTarget, 0.14);
-    camera.position.lerp(desiredPosition, 0.12);
+      .addScaledVector(forward, -followDistance * 0.82)
+      .add(new THREE.Vector3(0, Math.max(52, followDistance * 0.36), 0));
+    controls.target.lerp(desiredTarget, 0.19);
+    camera.position.lerp(desiredPosition, 0.18);
     return true;
   }
 
@@ -872,8 +944,18 @@ function updateFollowCamera() {
   clampFollowOffset(followCameraAnchor.offset, followMode);
 
   const desiredPosition = nextTarget.clone().add(followCameraAnchor.offset);
-  controls.target.lerp(nextTarget, 0.1);
-  camera.position.lerp(desiredPosition, 0.085);
+  tempFollowDirection.set(0, 0, 0);
+  vergil.root.getWorldDirection(tempFollowDirection);
+  if (tempFollowDirection.lengthSq() < 0.0001) {
+    tempFollowDirection.set(0, 0, 1);
+  } else {
+    tempFollowDirection.normalize();
+  }
+  tempFollowTarget.copy(nextTarget)
+    .addScaledVector(tempFollowDirection, Math.min(140, desiredCameraDistance * 0.12))
+    .add(new THREE.Vector3(0, Math.max(18, desiredCameraDistance * 0.05), 0));
+  controls.target.lerp(tempFollowTarget, 0.16);
+  camera.position.lerp(desiredPosition, 0.14);
   return true;
 }
 
@@ -971,7 +1053,8 @@ function updateSelectedTitle() {
   if (!node) { selectedTitle.style.display = 'none'; return; }
 
   // Project node position to screen, offset upward
-  const pos = new THREE.Vector3(node.x, node.y, node.z);
+  const pos = nodeWorldPosition(selectedNode);
+  if (!pos) { selectedTitle.style.display = 'none'; return; }
   pos.project(camera);
   if (pos.z > 1) { selectedTitle.style.display = 'none'; return; }
 
@@ -1065,9 +1148,14 @@ function createLegend() {
 }
 
 function syncAutoRotate() {
-  controls.autoRotate = autoRotateOn && followMode !== 'fov';
+  controls.autoRotate = false;
   controls.autoRotateSpeed = AUTO_ROTATE_SPEED;
-  controls.enableRotate = followMode !== 'fov';
+  controls.enableRotate = false;
+}
+
+function updateGraphAutoRotation(deltaSeconds) {
+  if (!autoRotateOn || followMode === 'fov' || userDragging) return;
+  graphRoot.rotation.y += deltaSeconds * AUTO_ROTATE_SPEED * 0.35;
 }
 
 // ============ BREADCRUMB TRAIL ============
@@ -1084,7 +1172,7 @@ function updateBreadcrumbs() {
   }
 
   if (breadcrumbLine) {
-    scene.remove(breadcrumbLine);
+    graphRoot.remove(breadcrumbLine);
     breadcrumbLine.geometry.dispose();
   }
 
@@ -1104,14 +1192,19 @@ function updateBreadcrumbs() {
     vertexColors: true, transparent: true, opacity: 0.3,
     depthWrite: false, blending: THREE.AdditiveBlending,
   }));
-  scene.add(breadcrumbLine);
+  graphRoot.add(breadcrumbLine);
 }
 
 // ============ SELECTION ============
-function nodeWorldPosition(nodeId) {
+function nodeLocalPosition(nodeId) {
   const node = tesseract?.getNode(nodeId);
   if (!node) return null;
   return new THREE.Vector3(node.x, node.y, node.z);
+}
+
+function nodeWorldPosition(nodeId) {
+  const localPosition = nodeLocalPosition(nodeId);
+  return localPosition ? graphLocalToWorld(localPosition) : null;
 }
 
 function findNearestNodeIdToPosition(position) {
@@ -1134,6 +1227,11 @@ function findNearestNodeIdToPosition(position) {
 function getVergilPosition() {
   if (!vergil?.root?.position) return null;
   return vergil.root.position.clone();
+}
+
+function getVergilWorldPosition() {
+  const local = getVergilPosition();
+  return local ? graphLocalToWorld(local) : null;
 }
 
 function clearRailTravelState() {
@@ -1209,7 +1307,7 @@ function getCommandAnchor() {
   const focusTarget = nodeWorldPosition(selectedNode)
     || controls.target?.clone?.()
     || new THREE.Vector3();
-  const vergilPosition = getVergilPosition();
+  const vergilPosition = getVergilWorldPosition();
 
   if (vergilPosition && vergilPosition.distanceTo(focusTarget) <= 2200) {
     return vergilPosition;
@@ -1242,7 +1340,7 @@ function worldCommandPointFromPointer(clientX, clientY) {
     commandPoint.setLength(COMMAND_WORLD_RADIUS);
   }
 
-  return commandPoint;
+  return graphWorldToLocal(commandPoint);
 }
 
 function clearCommandHover() {
@@ -1986,8 +2084,8 @@ async function init() {
 
   minimap = createMinimap({
     mount: appEl,
-    onPan: ({ x, y }) => {
-      panCameraFromMinimap({ x, y });
+    onOrbit: ({ from, to, deltaX, deltaY }) => {
+      orbitCameraFromNavigator({ from, to, deltaX, deltaY });
     },
     onZoom: ({ deltaY }) => {
       applyZoomDelta(deltaY, 'minimap');
@@ -2188,16 +2286,13 @@ async function init() {
       syncOrbTacticalState({ vergilState: currentVergilState });
     }
     controls.update(); // autoRotate handled internally by OrbitControls
+    const graphCenter = computeGraphCentroid();
     minimap?.update?.({
       nodes: tesseract?.nodes || [],
       selectedNodeId: selectedNode,
-      cameraTarget: getCameraFocusTarget(),
-      cameraFootprint: computeCameraFootprintXZ(),
-      zoomRatio: THREE.MathUtils.clamp(
-        (desiredCameraDistance - zoomBounds.min) / Math.max(1, zoomBounds.max - zoomBounds.min),
-        0,
-        1,
-      ),
+      graphCenter,
+      graphRadius,
+      cameraPosition: camera.position,
       layoutPreset: activeLayoutPreset,
     });
     skybox?.update?.(camera, elapsed);

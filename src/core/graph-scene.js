@@ -182,11 +182,11 @@ export function buildEdges(scene, tesseract) {
     // Idle and selected should share one family, so the base field already carries a restrained version of the selected energy.
     const t = Math.log(1 + e.weight) / Math.log(1 + maxWeight);
     const accent = mixColors(srcColor, tgtColor, 0.35);
-    c.multiplyScalar(0.4 + t * 0.06 + alwaysHot * 0.075 + depthBias * 0.036);
-    c.lerp(accent, 0.14 + t * 0.11 + alwaysHot * 0.1);
-    c.lerp(TRAVEL_EDGE_COLOR, 0.022 + alwaysHot * 0.065 + depthBias * 0.034);
-    c.offsetHSL(0, 0.022 + t * 0.024 + alwaysHot * 0.022, 0.008 + t * 0.012 + depthBias * 0.01);
-    const alpha = 0.11 + t * 0.048 + alwaysHot * 0.16 + depthBias * 0.06;
+    c.multiplyScalar(0.44 + t * 0.07 + alwaysHot * 0.08 + depthBias * 0.038);
+    c.lerp(accent, 0.12 + t * 0.1 + alwaysHot * 0.085);
+    c.lerp(TRAVEL_EDGE_COLOR, 0.018 + alwaysHot * 0.056 + depthBias * 0.03);
+    c.offsetHSL(0, 0.02 + t * 0.022 + alwaysHot * 0.02, 0.01 + t * 0.012 + depthBias * 0.01);
+    const alpha = 0.115 + t * 0.05 + alwaysHot * 0.15 + depthBias * 0.06;
 
     colors[vi * 3] = c.r; colors[vi * 3 + 1] = c.g; colors[vi * 3 + 2] = c.b;
     colors[(vi + 1) * 3] = c.r; colors[(vi + 1) * 3 + 1] = c.g; colors[(vi + 1) * 3 + 2] = c.b;
@@ -397,16 +397,16 @@ export function buildNodes(scene, tesseract) {
     const familyPhase = hash01(n.folder || 'default', 'cluster') * Math.PI * 2;
     const depthBias = clamp01((Math.hypot(n.x || 0, n.y || 0, n.z || 0) / maxRadius) * 0.8 + hash01(nodeKey, 'depth') * 0.2);
     const folderC = tuneGraphColor(getFolderColor(n.folder), 0.08, 0.76, 0.04);
-    const c = folderC.clone().multiplyScalar(0.72 + t * 0.08 + alwaysHot * 0.07);
-    c.lerp(TRAVEL_EDGE_COLOR, 0.02 + alwaysHot * 0.06 + depthBias * 0.03);
-    c.offsetHSL(0, 0.018 + t * 0.018 + alwaysHot * 0.018, 0.008 + t * 0.01 + depthBias * 0.008);
+    const c = folderC.clone().multiplyScalar(0.78 + t * 0.09 + alwaysHot * 0.075);
+    c.lerp(TRAVEL_EDGE_COLOR, 0.016 + alwaysHot * 0.048 + depthBias * 0.026);
+    c.offsetHSL(0, 0.016 + t * 0.017 + alwaysHot * 0.016, 0.01 + t * 0.011 + depthBias * 0.009);
     // Recency glow: nodes created in last 30 days get a white shift
     if (n.created) {
       const age = (Date.now() - new Date(n.created).getTime()) / (1000 * 60 * 60 * 24);
       if (age < 30) {
         const recency = 1 - age / 30; // 1.0 = today, 0 = 30 days ago
-        c.lerp(folderC.clone().offsetHSL(0.01, 0.02, 0.06), recency * 0.16);
-        c.lerp(new THREE.Color(0xffffff), recency * 0.02);
+        c.lerp(folderC.clone().offsetHSL(0.01, 0.02, 0.05), recency * 0.13);
+        c.lerp(new THREE.Color(0xffffff), recency * 0.012);
       }
     }
     colors[i * 3] = c.r;
@@ -470,20 +470,20 @@ export function buildNodes(scene, tesseract) {
         vDepthVariance = depthVariance;
         float cycle = uTime * (0.18 + depthVariance * 0.06) + length(position) * 0.0008 + clusterPhase;
         float ambientRise = max(0.0, sin(cycle));
-        float ambientRebound = max(0.0, sin(cycle - 0.68));
-        float ambientCrest = max(0.0, sin(cycle - 0.14));
+        float ambientRebound = max(0.0, sin(cycle - 0.62));
+        float ambientCrest = max(0.0, sin(cycle - 0.1));
         vAmbientPulse = clamp(
-          pow(ambientRise, 2.45) * (0.056 + hotness * 0.036) +
-          pow(ambientRebound, 1.62) * (0.034 + depthVariance * 0.022) +
-          ambientCrest * 0.016,
+          pow(ambientRise, 2.32) * (0.062 + hotness * 0.04) +
+          pow(ambientRebound, 1.54) * (0.04 + depthVariance * 0.024) +
+          ambientCrest * 0.018,
           0.0,
-          0.14
+          0.16
         );
-        float sparkleWave = 0.5 + 0.5 * sin(uTime * (0.42 + hotness * 0.18) + driftPhase + depthVariance * 4.0);
-        vSparkle = smoothstep(0.76, 0.98, sparkleWave) * (0.03 + hotness * 0.13);
+        float sparkleWave = 0.5 + 0.5 * sin(uTime * (0.46 + hotness * 0.2) + driftPhase + depthVariance * 4.0);
+        vSparkle = smoothstep(0.72, 0.98, sparkleWave) * (0.034 + hotness * 0.15);
         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = size * (1.0 + arrival * 0.18 + vAmbientPulse * 0.14 + vSparkle * 0.24) * (660.0 / -mvPosition.z);
-        gl_PointSize = clamp(gl_PointSize, 1.4, 54.0);
+        gl_PointSize = size * (1.0 + arrival * 0.2 + vAmbientPulse * 0.16 + vSparkle * 0.26) * (660.0 / -mvPosition.z);
+        gl_PointSize = clamp(gl_PointSize, 1.4, 56.0);
         gl_Position = projectionMatrix * mvPosition;
       }
     `,
@@ -499,12 +499,12 @@ export function buildNodes(scene, tesseract) {
         if (d > 0.5) discard;
         float a = 1.0 - smoothstep(0.26, 0.5, d);
         float arrival = clamp(vArrival, 0.0, 1.0);
-        vec3 arrivalColor = mix(vec3(${TRAVEL_EDGE_COLOR.r.toFixed(4)}, ${TRAVEL_EDGE_COLOR.g.toFixed(4)}, ${TRAVEL_EDGE_COLOR.b.toFixed(4)}), vec3(${ARRIVAL_NODE_COLOR.r.toFixed(4)}, ${ARRIVAL_NODE_COLOR.g.toFixed(4)}, ${ARRIVAL_NODE_COLOR.b.toFixed(4)}), 0.55);
-        vec3 ambientColor = mix(vColor, vec3(${TRAVEL_EDGE_COLOR.r.toFixed(4)}, ${TRAVEL_EDGE_COLOR.g.toFixed(4)}, ${TRAVEL_EDGE_COLOR.b.toFixed(4)}), 0.016 + vHotness * 0.044 + vDepthVariance * 0.02 + vAmbientPulse * 0.036);
-        vec3 sparkColor = mix(ambientColor, vec3(${ARRIVAL_NODE_COLOR.r.toFixed(4)}, ${ARRIVAL_NODE_COLOR.g.toFixed(4)}, ${ARRIVAL_NODE_COLOR.b.toFixed(4)}), 0.14 + vSparkle * 0.38);
-        vec3 finalColor = mix(sparkColor, max(sparkColor, arrivalColor * (0.68 + 0.2 * arrival)), arrival);
-        float halo = smoothstep(0.5, 0.08, d) * (arrival * 0.2 + vAmbientPulse * (0.04 + vHotness * 0.022) + vSparkle * 0.12);
-        gl_FragColor = vec4(finalColor, clamp(a * (0.88 + vAmbientPulse * 0.08 + vDepthVariance * 0.028 + vSparkle * 0.14) + halo, 0.0, 0.97));
+        vec3 arrivalColor = mix(vec3(${TRAVEL_EDGE_COLOR.r.toFixed(4)}, ${TRAVEL_EDGE_COLOR.g.toFixed(4)}, ${TRAVEL_EDGE_COLOR.b.toFixed(4)}), vec3(${ARRIVAL_NODE_COLOR.r.toFixed(4)}, ${ARRIVAL_NODE_COLOR.g.toFixed(4)}, ${ARRIVAL_NODE_COLOR.b.toFixed(4)}), 0.52);
+        vec3 ambientColor = mix(vColor, vec3(${TRAVEL_EDGE_COLOR.r.toFixed(4)}, ${TRAVEL_EDGE_COLOR.g.toFixed(4)}, ${TRAVEL_EDGE_COLOR.b.toFixed(4)}), 0.014 + vHotness * 0.04 + vDepthVariance * 0.018 + vAmbientPulse * 0.032);
+        vec3 sparkColor = mix(ambientColor, vec3(${ARRIVAL_NODE_COLOR.r.toFixed(4)}, ${ARRIVAL_NODE_COLOR.g.toFixed(4)}, ${ARRIVAL_NODE_COLOR.b.toFixed(4)}), 0.12 + vSparkle * 0.34);
+        vec3 finalColor = mix(sparkColor, max(sparkColor, arrivalColor * (0.7 + 0.16 * arrival)), arrival);
+        float halo = smoothstep(0.5, 0.08, d) * (arrival * 0.18 + vAmbientPulse * (0.038 + vHotness * 0.02) + vSparkle * 0.1);
+        gl_FragColor = vec4(finalColor, clamp(a * (0.9 + vAmbientPulse * 0.08 + vDepthVariance * 0.024 + vSparkle * 0.12) + halo, 0.0, 0.96));
       }
     `,
     transparent: true,
@@ -1262,7 +1262,7 @@ export function updateSelectionPulse(elapsed, edgeHandle, nodeHandle, nodeId, te
   if (!connectedEdges) return;
   const neighbors = new Set(tesseract.adjacency.get(nodeId) || []);
 
-  const pulseSpeed = 0.92;
+  const pulseSpeed = 1.08;
   const cycle = elapsed * pulseSpeed;
   const primaryRise = Math.max(0, Math.sin(cycle));
   const rebound = Math.max(0, Math.sin(cycle - 0.54));
@@ -1272,10 +1272,10 @@ export function updateSelectionPulse(elapsed, edgeHandle, nodeHandle, nodeId, te
     (Math.pow(rebound, 1.55) * 0.48) +
     (crest * 0.2),
   );
-  const afterglow = Math.pow(Math.max(0, Math.sin(cycle - 1.14)), 2.3) * 0.22;
+  const afterglow = Math.pow(Math.max(0, Math.sin(cycle - 0.98)), 2.18) * 0.24;
   const laserPulse = clamp01(beat + afterglow);
-  const brightness = 0.98 + 0.12 * laserPulse;
-  const edgeAlpha = 0.48 + 0.08 * laserPulse;
+  const brightness = 1.0 + 0.1 * laserPulse;
+  const edgeAlpha = 0.5 + 0.08 * laserPulse;
 
   // The pulse is restrained so the whole field stays dimensional during focus and travel.
   for (const ei of connectedEdges) {
@@ -1288,10 +1288,10 @@ export function updateSelectionPulse(elapsed, edgeHandle, nodeHandle, nodeId, te
         edgeHandle.colorAttr.array,
         v * 3,
         edgeHandle.defaultColors,
-        brightness + hotness * 0.03,
-        mixColors(TRAVEL_EDGE_COLOR, TRAVEL_EDGE_CORE, 0.22 + 0.28 * laserPulse),
-        0.04 + 0.05 * laserPulse + hotness * 0.03,
-        1.04,
+        brightness + hotness * 0.026,
+        mixColors(TRAVEL_EDGE_COLOR, TRAVEL_EDGE_CORE, 0.16 + 0.24 * laserPulse),
+        0.03 + 0.046 * laserPulse + hotness * 0.025,
+        1.025,
       );
     }
   }
@@ -1299,36 +1299,36 @@ export function updateSelectionPulse(elapsed, edgeHandle, nodeHandle, nodeId, te
   edgeHandle.colorAttr.needsUpdate = true;
 
   // Pulse nodes: amplify their own base color
-  const nodeBright = 1.0 + 0.12 * laserPulse;
+  const nodeBright = 1.0 + 0.1 * laserPulse;
   for (let i = 0; i < nodeHandle.nodeCount; i++) {
     const nid = nodeHandle.nodeIdByIndex.get(i);
     const hotness = nodeHandle.hotnessAttr?.array[i] ?? 0;
     if (nid === nodeId) {
-      nodeHandle.sizeAttr.array[i] = nodeHandle.defaultSizes[i] * (1.62 + 0.14 * laserPulse + hotness * 0.06);
+      nodeHandle.sizeAttr.array[i] = nodeHandle.defaultSizes[i] * (1.56 + 0.13 * laserPulse + hotness * 0.06);
       setGlowColor(
         nodeHandle.colorAttr.array,
         i * 3,
         nodeHandle.defaultColors,
         nodeBright + hotness * 0.03,
-        mixColors(TRAVEL_EDGE_COLOR, ARRIVAL_NODE_COLOR, 0.18 + 0.24 * laserPulse),
-        0.04 + 0.05 * laserPulse + hotness * 0.02,
-        1.04,
+        mixColors(TRAVEL_EDGE_COLOR, ARRIVAL_NODE_COLOR, 0.16 + 0.22 * laserPulse),
+        0.03 + 0.044 * laserPulse + hotness * 0.02,
+        1.02,
       );
     } else if (neighbors.has(nid)) {
       const phase = i * 0.3;
       const neighborPulse = clamp01(
-        Math.pow(Math.max(0, Math.sin(elapsed * 0.78 - phase)), 3.1) +
-        Math.pow(Math.max(0, Math.sin(elapsed * 0.78 - phase - 0.58)), 1.8) * 0.34,
+        Math.pow(Math.max(0, Math.sin(elapsed * 0.74 - phase)), 2.9) +
+        Math.pow(Math.max(0, Math.sin(elapsed * 0.74 - phase - 0.56)), 1.72) * 0.3,
       );
-      nodeHandle.sizeAttr.array[i] = nodeHandle.defaultSizes[i] * (1.14 + 0.12 * neighborPulse + hotness * 0.04);
+      nodeHandle.sizeAttr.array[i] = nodeHandle.defaultSizes[i] * (1.12 + 0.11 * neighborPulse + hotness * 0.04);
       setGlowColor(
         nodeHandle.colorAttr.array,
         i * 3,
         nodeHandle.defaultColors,
-        0.96 + 0.08 * neighborPulse + hotness * 0.03,
+        0.97 + 0.07 * neighborPulse + hotness * 0.03,
         TRAVEL_EDGE_COLOR,
-        0.02 + 0.04 * neighborPulse + hotness * 0.018,
-        1.03,
+        0.018 + 0.036 * neighborPulse + hotness * 0.016,
+        1.02,
       );
     }
   }

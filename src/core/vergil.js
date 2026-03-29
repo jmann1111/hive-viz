@@ -26,15 +26,15 @@ const SEGMENT_REACHED_DISTANCE = 18;
 const COMMAND_BOUNDS_RADIUS = 16000;
 const TRAIL_POINTS = 40;
 const TRAIL_OFFSET = 11;
-const MAX_SPEED = 18;
-const RAIL_MAX_SPEED = 21;
-const FREE_MOVE_MAX_SPEED = 20;
+const MAX_SPEED = 20;
+const RAIL_MAX_SPEED = 26;
+const FREE_MOVE_MAX_SPEED = 24;
 const IDLE_DRAG = 0.86;
 const TARGET_DRAG = 0.8;
 const ATTEND_DRAG = 0.86;
 const ATTACHED_DRAG = 0.84;
-const FREE_MOVE_DRAG = 0.88;
-const RAIL_DRAG = 0.91;
+const FREE_MOVE_DRAG = 0.84;
+const RAIL_DRAG = 0.88;
 const AMBIENT_POSITION_SMOOTH = 0.055;
 const ATTEND_POSITION_SMOOTH = 0.11;
 const TARGET_POSITION_SMOOTH = 0.2;
@@ -43,13 +43,13 @@ const FREE_MOVE_POSITION_SMOOTH = 0.12;
 const RAIL_POSITION_SMOOTH = 0.14;
 const ACTIVATION_DECAY = 0.88;
 const COMMAND_PULSE_DECAY = 0.94;
-const FREE_MOVE_LOOK_AHEAD = 24;
+const FREE_MOVE_LOOK_AHEAD = 32;
 const AMBIENT_PURSUIT = 0.013;
 const ATTEND_PURSUIT = 0.03;
 const TARGET_PURSUIT = 0.055;
 const ATTACHED_PURSUIT = 0.04;
-const FREE_MOVE_PURSUIT = 0.05;
-const RAIL_PURSUIT = 0.055;
+const FREE_MOVE_PURSUIT = 0.06;
+const RAIL_PURSUIT = 0.072;
 const SPEECH_WORLD_OFFSET = 8.5;
 const SPEECH_FADE_IN_MS = 120;
 const SPEECH_FADE_OUT_MS = 180;
@@ -1454,30 +1454,32 @@ export function createVergil(scene, options = {}) {
       ? 0.18 + (Math.sin(elapsed * 2.2) * 0.04)
       : 0;
     const pulse = state.activationPulse;
-    const speedPulse = THREE.MathUtils.clamp(speed * 0.14, 0, 0.42);
+    const railMotion = state.mode === RAIL_TRAVEL ? 1 : 0;
+    const freeMotion = state.mode === FREE_MOVE ? 1 : 0;
+    const speedPulse = THREE.MathUtils.clamp(speed * 0.18, 0, 0.5);
     const mendGlow = state.mendPulse * 0.45;
-    const pulseScale = 1 + (pulse * 0.55);
+    const pulseScale = 1 + (pulse * 0.58);
     body.halo.scale.setScalar(pulseScale + mendGlow);
-    body.halo.material.opacity = 0.16 + (pulse * 0.42) + (speedPulse * 0.14) + (mendGlow * 0.8) + constructionBoost;
-    body.innerCore.material.opacity = 0.8 + (pulse * 0.16) + (speedPulse * 0.08) + (mendGlow * 0.22) + (constructionBoost * 0.6);
-    body.wakeHalo.scale.setScalar(1 + (speedPulse * 0.4) + (pulse * 0.18) + (mendGlow * 0.12) + (constructionBoost * 0.45));
-    body.wakeHalo.material.opacity = 0.08 + (speedPulse * 0.16) + (pulse * 0.12) + (mendGlow * 0.12) + (constructionBoost * 0.75);
+    body.halo.material.opacity = 0.16 + (pulse * 0.4) + (speedPulse * 0.18) + (mendGlow * 0.8) + (railMotion * 0.06) + constructionBoost;
+    body.innerCore.material.opacity = 0.8 + (pulse * 0.14) + (speedPulse * 0.1) + (mendGlow * 0.22) + (railMotion * 0.08) + (constructionBoost * 0.6);
+    body.wakeHalo.scale.setScalar(1 + (speedPulse * 0.45) + (pulse * 0.16) + (mendGlow * 0.12) + (railMotion * 0.16) + (freeMotion * 0.08) + (constructionBoost * 0.45));
+    body.wakeHalo.material.opacity = 0.08 + (speedPulse * 0.18) + (pulse * 0.1) + (mendGlow * 0.12) + (railMotion * 0.08) + (constructionBoost * 0.75);
     body.wakePlumeGlow.scale.set(
-      1 + (speedPulse * 0.4) + (pulse * 0.18),
-      1 + (speedPulse * 0.9) + (mendGlow * 0.18),
-      1 + (speedPulse * 0.4),
+      1 + (speedPulse * 0.46) + (pulse * 0.18) + (railMotion * 0.14),
+      1 + (speedPulse * 0.98) + (mendGlow * 0.18) + (railMotion * 0.2),
+      1 + (speedPulse * 0.46) + (railMotion * 0.14),
     );
     body.wakePlumeCore.scale.set(
-      1 + (speedPulse * 0.2) + (pulse * 0.08),
-      1 + (speedPulse * 0.55),
-      1 + (speedPulse * 0.2),
+      1 + (speedPulse * 0.24) + (pulse * 0.08) + (railMotion * 0.08),
+      1 + (speedPulse * 0.62) + (railMotion * 0.12),
+      1 + (speedPulse * 0.24) + (railMotion * 0.08),
     );
-    body.wakePlumeGlow.material.opacity = 0.04 + (speedPulse * 0.14) + (pulse * 0.06) + (mendGlow * 0.06) + (constructionBoost * 0.55);
-    body.wakePlumeCore.material.opacity = 0.08 + (speedPulse * 0.12) + (pulse * 0.08) + (constructionBoost * 0.42);
-    body.trailCore.material.opacity = 0.26 + (speedPulse * 0.18) + (pulse * 0.08) + (constructionBoost * 0.72);
-    body.trailGlow.material.opacity = 0.08 + (speedPulse * 0.16) + (pulse * 0.06) + (constructionBoost * 0.9);
-    body.trailDust.material.opacity = 0.05 + (speedPulse * 0.1) + (pulse * 0.04) + (constructionBoost * 0.42);
-    body.trailDust.material.size = 3.2 + (speedPulse * 3.6) + (mendGlow * 1.6) + (constructionBoost * 10);
+    body.wakePlumeGlow.material.opacity = 0.04 + (speedPulse * 0.16) + (pulse * 0.06) + (mendGlow * 0.06) + (railMotion * 0.06) + (constructionBoost * 0.55);
+    body.wakePlumeCore.material.opacity = 0.08 + (speedPulse * 0.14) + (pulse * 0.08) + (railMotion * 0.06) + (constructionBoost * 0.42);
+    body.trailCore.material.opacity = 0.26 + (speedPulse * 0.22) + (pulse * 0.08) + (railMotion * 0.08) + (constructionBoost * 0.72);
+    body.trailGlow.material.opacity = 0.08 + (speedPulse * 0.18) + (pulse * 0.06) + (railMotion * 0.08) + (constructionBoost * 0.9);
+    body.trailDust.material.opacity = 0.05 + (speedPulse * 0.12) + (pulse * 0.04) + (railMotion * 0.04) + (constructionBoost * 0.42);
+    body.trailDust.material.size = 3.2 + (speedPulse * 3.9) + (mendGlow * 1.6) + (railMotion * 1.2) + (constructionBoost * 10);
 
     if (speed > 0.06) {
       trailDirection.copy(speedVector).normalize();
@@ -1488,7 +1490,13 @@ export function createVergil(scene, options = {}) {
     if (!state.seededTrail) {
       seedTrail(trailAnchor);
     } else {
-      const trailLerp = commandActive ? 0.32 : usingAttendFocus ? 0.24 : 0.12;
+      const trailLerp = state.mode === RAIL_TRAVEL
+        ? 0.28
+        : commandActive
+          ? 0.34
+          : usingAttendFocus
+            ? 0.24
+            : 0.12;
       state.trailHead.lerp(trailAnchor, trailLerp);
       pushTrail(state.trailHead);
     }
