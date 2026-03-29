@@ -1,7 +1,7 @@
 {
-  "name": "hive-viz",
+  "name": "the-hive",
   "version": "0.1.0",
-  "description": "Temporal 3D visualization of The Hive knowledge vault",
+  "description": "The Hive knowledge explorer and vault visualizer",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "extract": "node scripts/extract.js",
-    "eval:orb": "node scripts/eval-orb.js --providers docs/evals/fixtures/providers.sample.json",
+    "eval:retriever": "node scripts/eval-retriever.js --providers docs/evals/fixtures/providers.sample.json",
     "server": "node src/server/index.js",
     "test": "node --test"
   },

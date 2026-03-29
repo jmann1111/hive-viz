@@ -1,12 +1,12 @@
 import http from 'http';
 
 import { loadConfig } from './config.js';
-import { createOrbRetrieveHandler, sendJson } from './handlers/orb-retrieve.js';
+import { createRetrieveHandler, sendJson } from './handlers/retrieve.js';
 import { createLogger } from './logger.js';
 import { createProviderRegistry } from './providers/index.js';
 import { loadGraphIndex } from './retrieval/graph-index.js';
 
-export async function createOrbServer({
+export async function createRetrieverServer({
   config = loadConfig(),
   logger = createLogger(),
   providers = null,
@@ -14,7 +14,7 @@ export async function createOrbServer({
 } = {}) {
   const graphIndex = index || (await loadGraphIndex(config.graphPath));
   const providerRegistry = providers || createProviderRegistry(config, { logger });
-  const handleOrbRetrieve = createOrbRetrieveHandler({
+  const handleRetrieve = createRetrieveHandler({
     config,
     logger,
     providers: providerRegistry,
@@ -22,8 +22,8 @@ export async function createOrbServer({
   });
 
   const server = http.createServer(async (req, res) => {
-    if (req.method === 'POST' && req.url === '/api/orb/retrieve') {
-      await handleOrbRetrieve(req, res);
+    if (req.method === 'POST' && (req.url === '/api/retriever/retrieve' || req.url === '/api/orb/retrieve')) {
+      await handleRetrieve(req, res);
       return;
     }
 
@@ -53,9 +53,9 @@ export async function createOrbServer({
 }
 
 async function start() {
-  const app = await createOrbServer();
+  const app = await createRetrieverServer();
   app.server.listen(app.config.serverPort, () => {
-    app.logger.info('orb.server.started', {
+    app.logger.info('retriever.server.started', {
       port: app.config.serverPort,
       graphPath: app.config.graphPath,
       vaultRoot: app.config.vaultRoot,
@@ -69,3 +69,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(1);
   });
 }
+
+export const createOrbServer = createRetrieverServer;

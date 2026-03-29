@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from 'fs/promises';
 import path from 'path';
 import process from 'process';
 
-const DEFAULT_BENCHMARK = 'docs/evals/orb-benchmark-pack.json';
+const DEFAULT_BENCHMARK = 'docs/evals/retriever-benchmark-pack.json';
 const DEFAULT_GRAPH = 'public/graph.json';
 const METRIC_WEIGHTS = {
   latency_score: 0.15,
@@ -84,7 +84,7 @@ function validateBenchmark(benchmark, graphIndex) {
   }
 }
 
-function normalizeOrbApiResponse(payload) {
+function normalizeRetrieverApiResponse(payload) {
   const mode = payload?.intent?.mode;
   const confidence = payload?.intent?.confidence ?? null;
   if (mode === 'resolve') {
@@ -138,8 +138,8 @@ function normalizeResponse(rawResponse) {
     };
   }
 
-  const fromOrbApi = normalizeOrbApiResponse(rawResponse);
-  if (fromOrbApi) return fromOrbApi;
+  const fromRetrieverApi = normalizeRetrieverApiResponse(rawResponse);
+  if (fromRetrieverApi) return fromRetrieverApi;
 
   const source = rawResponse.response ?? rawResponse;
   const resolved = source.resolved ?? (source.resolved_path
@@ -313,9 +313,9 @@ async function executeProviderCase(provider, testCase) {
     return null;
   }
 
-  if (provider.mode === 'orb-api') {
+  if (provider.mode === 'retriever-api' || provider.mode === 'orb-api') {
     return callJsonEndpoint({
-      url: provider.url ?? 'http://localhost:8787/api/orb/retrieve',
+      url: provider.url ?? 'http://localhost:8787/api/retriever/retrieve',
       headers: provider.headers ?? {},
       timeoutMs: provider.timeout_ms ?? 10000,
       body: {
@@ -338,7 +338,7 @@ async function executeProviderCase(provider, testCase) {
         : {
             query: testCase.query,
             case_id: testCase.id,
-            contract_version: 'orb-retrieval-response-v1'
+            contract_version: 'retriever-response-v1'
           }
     });
   }
@@ -455,7 +455,7 @@ function fmt(value) {
 
 function renderMarkdown(benchmark, summaries) {
   const lines = [];
-  lines.push('# Orb Evaluation Report');
+  lines.push('# Retriever Evaluation Report');
   lines.push('');
   lines.push(`Benchmark: ${benchmark.version}`);
   lines.push(`Cases: ${(benchmark.cases ?? []).length}`);
@@ -522,8 +522,8 @@ async function main() {
 
   if (outDir) {
     await mkdir(outDir, { recursive: true });
-    await writeFile(path.join(outDir, 'orb-eval-report.json'), JSON.stringify(report, null, 2));
-    await writeFile(path.join(outDir, 'orb-eval-report.md'), `${markdown}\n`);
+    await writeFile(path.join(outDir, 'retriever-eval-report.json'), JSON.stringify(report, null, 2));
+    await writeFile(path.join(outDir, 'retriever-eval-report.md'), `${markdown}\n`);
   }
 
   console.log(markdown);

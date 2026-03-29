@@ -1,11 +1,11 @@
-# Orb Gold Answers
+# Retriever Gold Answers
 
 This document records the expected gold behavior for the current Hive graph at `public/graph.json` with 1,447 nodes and 2,583 edges.
 
 The laws this pack enforces:
 
 - Obsidian is the source of truth.
-- The orb retrieves, Walt interprets.
+- Retriever retrieves, Walt interprets.
 - Direct retrieval chat does not route through OpenClaw.
 - OpenClaw remains for crons, agents, automations, and background labor.
 - All file paths must validate before UI action.

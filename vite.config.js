@@ -7,7 +7,7 @@ export default defineConfig({
     port: 5173,
     open: true,
     proxy: {
-      '/api': process.env.ORB_SERVER_URL || 'http://localhost:8787',
+      '/api': process.env.RETRIEVER_SERVER_URL || process.env.ORB_SERVER_URL || 'http://localhost:8787',
     },
   },
   build: {

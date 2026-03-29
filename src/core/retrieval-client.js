@@ -1,4 +1,4 @@
-const DEFAULT_ENDPOINT = '/api/orb/retrieve';
+const DEFAULT_ENDPOINT = '/api/retriever/retrieve';
 
 function toScore(value) {
   const score = Number(value);
@@ -7,7 +7,7 @@ function toScore(value) {
 
 export function normalizeRetrievalResponse(raw) {
   if (!raw || typeof raw !== 'object') {
-    throw new Error('Orb returned an empty response.');
+    throw new Error('Retriever returned an empty response.');
   }
 
   if (raw.intent === 'resolved') {
@@ -96,12 +96,18 @@ export function normalizeRetrievalResponse(raw) {
     };
   }
 
-  throw new Error('Orb returned an unknown intent.');
+  throw new Error('Retriever returned an unknown intent.');
 }
 
 export function createRetrievalClient(options = {}) {
-  const endpoint = options.endpoint || import.meta.env.VITE_ORB_RETRIEVAL_URL || DEFAULT_ENDPOINT;
-  const defaultProvider = options.provider || import.meta.env.VITE_ORB_PROVIDER || 'openai';
+  const endpoint = options.endpoint
+    || import.meta.env.VITE_RETRIEVER_URL
+    || import.meta.env.VITE_ORB_RETRIEVAL_URL
+    || DEFAULT_ENDPOINT;
+  const defaultProvider = options.provider
+    || import.meta.env.VITE_RETRIEVER_PROVIDER
+    || import.meta.env.VITE_ORB_PROVIDER
+    || 'openai';
 
   return {
     endpoint,
@@ -122,11 +128,11 @@ export function createRetrievalClient(options = {}) {
       try {
         body = await response.json();
       } catch {
-        throw new Error('Orb returned invalid JSON.');
+        throw new Error('Retriever returned invalid JSON.');
       }
 
       if (!response.ok) {
-        const message = body?.error?.message || `Orb request failed (${response.status}).`;
+        const message = body?.error?.message || `Retriever request failed (${response.status}).`;
         throw new Error(message);
       }
 

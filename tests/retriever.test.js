@@ -4,12 +4,12 @@ import path from 'path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createOrbServer } from '../src/server/index.js';
+import { createRetrieverServer } from '../src/server/index.js';
 import { GeminiProvider } from '../src/server/providers/gemini.js';
 import { OpenAIProvider } from '../src/server/providers/openai.js';
 
 async function makeFixture() {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'orb-retrieve-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'retriever-test-'));
   const vaultRoot = path.join(tempRoot, 'vault');
   const graphPath = path.join(tempRoot, 'graph.json');
 
@@ -112,7 +112,7 @@ function makeJsonResponse(payload, status = 200) {
 
 async function startTestServer({ provider }) {
   const fixture = await makeFixture();
-  const app = await createOrbServer({
+  const app = await createRetrieverServer({
     config: {
       vaultRoot: fixture.vaultRoot,
       graphPath: fixture.graphPath,
@@ -172,7 +172,7 @@ test('resolves a high-confidence note with a validated absolute path', async () 
   });
 
   try {
-    const response = await fetch(`${server.baseUrl}/api/orb/retrieve`, {
+    const response = await fetch(`${server.baseUrl}/api/retriever/retrieve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -213,7 +213,7 @@ test('returns 3 candidates for medium confidence ambiguity', async () => {
   });
 
   try {
-    const response = await fetch(`${server.baseUrl}/api/orb/retrieve`, {
+    const response = await fetch(`${server.baseUrl}/api/retriever/retrieve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -255,7 +255,7 @@ test('asks one narrow clarification question for low confidence', async () => {
   });
 
   try {
-    const response = await fetch(`${server.baseUrl}/api/orb/retrieve`, {
+    const response = await fetch(`${server.baseUrl}/api/retriever/retrieve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -284,7 +284,7 @@ test('rejects invalid provider names', async () => {
   });
 
   try {
-    const response = await fetch(`${server.baseUrl}/api/orb/retrieve`, {
+    const response = await fetch(`${server.baseUrl}/api/retriever/retrieve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -318,7 +318,7 @@ test('rejects malformed provider intent payloads', async () => {
   });
 
   try {
-    const response = await fetch(`${server.baseUrl}/api/orb/retrieve`, {
+    const response = await fetch(`${server.baseUrl}/api/retriever/retrieve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -366,7 +366,7 @@ test('parses fenced provider JSON for the exact psychological profile query', as
     }),
   });
 
-  const app = await createOrbServer({
+  const app = await createRetrieverServer({
     config: {
       vaultRoot: fixture.vaultRoot,
       graphPath: fixture.graphPath,
@@ -398,7 +398,7 @@ test('parses fenced provider JSON for the exact psychological profile query', as
     await new Promise((resolve) => app.server.listen(0, resolve));
     const address = app.server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
-    const response = await fetch(`http://127.0.0.1:${port}/api/orb/retrieve`, {
+    const response = await fetch(`http://127.0.0.1:${port}/api/retriever/retrieve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -440,7 +440,7 @@ test('returns invalid_json diagnostics and logs raw provider output on parse fai
     }),
   });
 
-  const app = await createOrbServer({
+  const app = await createRetrieverServer({
     config: {
       vaultRoot: fixture.vaultRoot,
       graphPath: fixture.graphPath,
@@ -472,7 +472,7 @@ test('returns invalid_json diagnostics and logs raw provider output on parse fai
     await new Promise((resolve) => app.server.listen(0, resolve));
     const address = app.server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
-    const response = await fetch(`http://127.0.0.1:${port}/api/orb/retrieve`, {
+    const response = await fetch(`http://127.0.0.1:${port}/api/retriever/retrieve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -545,7 +545,7 @@ test('gemini logs raw failure details and sends a Gemini-safe structured-output 
   );
 
   assert.match(capturedUrl, /\/models\/gemini-2\.5-flash:generateContent$/);
-  assert.equal(capturedBody.system_instruction.parts[0].text.includes('Hive orb retrieval intent parser'), true);
+  assert.equal(capturedBody.system_instruction.parts[0].text.includes('Hive Retriever intent parser'), true);
   assert.equal(capturedBody.generationConfig.responseMimeType, 'application/json');
   assert.equal(typeof capturedBody.generationConfig.responseJsonSchema, 'object');
   assert.equal('propertyOrdering' in capturedBody.generationConfig.responseJsonSchema, false);

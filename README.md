@@ -1,9 +1,8 @@
-# Hive Viz - Temporal Knowledge Visualizer
+# The Hive
 
-A 3D interactive visualization of The Hive vault where time is a spatial dimension.
-Instead of a flat force-directed graph, files exist in a temporal space where the
-Z-axis represents time (June 2023 to present), creating a structure that looks like
-a growing organism: part DNA helix, part tree of life, part expanding galaxy.
+The Hive is a 3D knowledge explorer for the Hive vault. It combines a spatial graph,
+an Obsidian-style browser, an inline reader, and a direct retrieval path for opening
+notes fast without routing through an agent layer.
 
 ## Architecture
 
@@ -15,17 +14,17 @@ See `docs/ARCHITECTURE.md` for the full technical design.
 npm install
 npm run extract    # Extract vault metadata into graph JSON
 npm run dev        # Start dev server with hot reload
-npm run server     # Start orb retrieval backend on :8787
+npm run server     # Start Retriever backend on :8787
 ```
 
-## Orb Retrieval Backend
+## Retriever Backend
 
-The orb backend is a direct low-latency retrieval path. It does not route through
+Retriever is the direct low-latency retrieval path. It does not route through
 OpenClaw and it does not run an agent framework.
 
 ### Endpoint
 
-`POST /api/orb/retrieve`
+`POST /api/retriever/retrieve`
 
 ```json
 {
@@ -47,11 +46,11 @@ Structured response modes:
 - `HIVE_VAULT_ROOT`: absolute path to the Obsidian vault root
 - `OPENAI_API_KEY`: required for OpenAI intent parsing
 - `GEMINI_API_KEY`: required for Gemini intent parsing
-- `ORB_SERVER_PORT`: optional, defaults to `8787`
+- `RETRIEVER_SERVER_PORT`: optional, defaults to `8787`
 
 ### Notes
 
-- Vite proxies `/api/*` to the orb server
+- Vite proxies `/api/*` to the Retriever server
 - Providers only parse retrieval intent
 - Local retrieval ranks notes from `public/graph.json`
 - Every actionable path is validated against the vault root before response
@@ -67,12 +66,12 @@ Structured response modes:
 
 ```
 src/
-  core/        - Graph data structures, force simulation, temporal mapping
-  rendering/   - Three.js scene, materials, shaders, particle effects
-  ui/          - Controls, timeline scrubber, info panels, search
-  data/        - Data loading, filtering, graph mutations
+  core/        - Graph rendering, sidebar, reader, retriever panel, layout logic
+  server/      - Retrieval endpoint, provider adapters, graph index, validation
+  styles/      - Sidebar, reader, and retriever panel CSS
 scripts/
-  extract.js   - Vault metadata extraction script
+  extract.js         - Vault metadata extraction script
+  eval-retriever.js  - Retriever benchmark harness
 public/
   graph.json   - Extracted vault graph (generated)
 docs/
@@ -81,4 +80,4 @@ docs/
 
 ## Part of The Hive
 
-This project lives under the Hive umbrella. See `30-Projects/hive-viz/` in the vault.
+This repo was previously referred to as `hive-viz`. It is now treated as The Hive app.

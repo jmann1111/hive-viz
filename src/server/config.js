@@ -20,10 +20,10 @@ export function loadConfig(env = process.env) {
     || DEFAULT_VAULT_ROOTS.find((candidate) => fs.existsSync(candidate))
     || '';
   const vaultRoot = path.resolve(configuredVaultRoot);
-  const graphPath = path.resolve(cwd, env.ORB_GRAPH_PATH || DEFAULT_GRAPH_PATH);
+  const graphPath = path.resolve(cwd, env.RETRIEVER_GRAPH_PATH || env.ORB_GRAPH_PATH || DEFAULT_GRAPH_PATH);
 
   if (!vaultRoot || !fs.existsSync(vaultRoot)) {
-    throw new Error('Vault root not found. Set HIVE_VAULT_ROOT before starting the orb server.');
+    throw new Error('Vault root not found. Set HIVE_VAULT_ROOT before starting the retriever server.');
   }
 
   if (!fs.existsSync(graphPath)) {
@@ -34,9 +34,9 @@ export function loadConfig(env = process.env) {
     cwd,
     vaultRoot,
     graphPath,
-    serverPort: parsePositiveInt(env.ORB_SERVER_PORT, DEFAULT_SERVER_PORT),
+    serverPort: parsePositiveInt(env.RETRIEVER_SERVER_PORT || env.ORB_SERVER_PORT, DEFAULT_SERVER_PORT),
     providerTimeoutMs: parsePositiveInt(
-      env.ORB_PROVIDER_TIMEOUT_MS,
+      env.RETRIEVER_PROVIDER_TIMEOUT_MS || env.ORB_PROVIDER_TIMEOUT_MS,
       DEFAULT_PROVIDER_TIMEOUT_MS,
     ),
     defaultModels: {

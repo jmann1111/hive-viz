@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hive Viz</title>
+  <title>The Hive</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #09090b; color: #a0a0a0; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif; }
@@ -30,7 +30,7 @@
     }
     #reader-resize:hover { background: rgba(255,255,255,0.03); }
     #app { flex: 1; height: 100%; overflow: hidden; position: relative; min-width: 300px; }
-    #orb-root {
+    #retriever-root {
       position: absolute;
       inset: 0;
       pointer-events: none;
@@ -40,11 +40,11 @@
   </style>
   <link rel="stylesheet" href="/src/styles/sidebar.css">
   <link rel="stylesheet" href="/src/styles/reader.css">
-  <link rel="stylesheet" href="/src/styles/orb.css">
+  <link rel="stylesheet" href="/src/styles/retriever-panel.css">
 </head>
 <body>
   <div id="gate" style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;flex-direction:column;gap:12px;">
-    <div style="font-size:11px;color:#333;letter-spacing:2px;text-transform:uppercase;">Hive Viz</div>
+    <div style="font-size:11px;color:#333;letter-spacing:2px;text-transform:uppercase;">The Hive</div>
     <input id="gate-pw" type="password" placeholder="Password" autofocus
       style="padding:8px 14px;background:#111;border:1px solid #1c1c1f;border-radius:4px;color:#888;font-size:13px;font-family:inherit;outline:none;width:200px;text-align:center;">
     <div id="gate-err" style="font-size:10px;color:#553333;height:14px;"></div>
@@ -55,7 +55,7 @@
       <div id="reader-resize"></div>
     </div>
     <div id="app">
-      <div id="orb-root"></div>
+      <div id="retriever-root"></div>
     </div>
   </div>
   <script>

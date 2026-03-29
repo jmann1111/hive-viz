@@ -6,13 +6,13 @@ It exists so future merge and integration decisions do not mistake the current s
 
 ## Current Truth
 
-- The current bottom orb panel is a temporary retrieval scaffold.
+- The current bottom direct retrieval panel is a temporary retrieval scaffold.
 - It is not the final product UX.
 - Keep the current retrieval stack and safety logic.
 
 ## Product Law
 
-- This is Vergil, not a generic orb.
+- This is Vergil, not a generic retrieval widget.
 - Vergil is a diegetic in-world archive intelligence.
 - Vergil should exist spatially in the galaxy, not only as flat UI chrome.
 - Retrieval should eventually feel embodied and guided.

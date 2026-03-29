@@ -1,4 +1,4 @@
-# Orb Scoring Rubric
+# Retriever Scoring Rubric
 
 This rubric keeps provider comparison grounded in retrieval behavior instead of essay quality.
 
@@ -8,7 +8,7 @@ Total score is normalized to 100 using only the metrics that are available for a
 
 | Metric | Weight | What It Measures |
 | --- | ---: | --- |
-| Latency | 0.15 | How fast the orb responds |
+| Latency | 0.15 | How fast the retriever responds |
 | Exact-hit accuracy | 0.25 | Whether high-confidence direct resolves hit the correct path |
 | Candidate quality | 0.15 | Whether medium-confidence lists contain the right 3 to 5 options in a useful order |
 | Hallucination resistance | 0.20 | Whether returned paths and titles are real and validated |
@@ -118,12 +118,12 @@ Rubric:
 - `4`: mostly fast and correct, minor extra words or occasional shortlist when a direct hit was obvious
 - `3`: usable but often hedges, over-explains, or needs extra steering
 - `2`: frequently clumsy, verbose, or behaviorally mismatched
-- `1`: unreliable, hallucinatory, or too slow to feel like the orb
+- `1`: unreliable, hallucinatory, or too slow to feel like the retriever
 
 Normalization:
 - `telepathic_feel = rating / 5`
 
-## Minimum Bar For Orb Readiness
+## Minimum Bar For Retriever Readiness
 
 - `hallucination_rate <= 0.02`
 - `exact_hit_accuracy >= 0.90`
@@ -132,4 +132,4 @@ Normalization:
 - `latency_ms_avg <= 2500`
 - `telepathic_feel >= 0.80`
 
-If a provider misses the hallucination or confidence bars, it is not orb-ready even if the total weighted score looks good.
+If a provider misses the hallucination or confidence bars, it is not retriever-ready even if the total weighted score looks good.

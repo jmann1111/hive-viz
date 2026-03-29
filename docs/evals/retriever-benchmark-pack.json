@@ -1,13 +1,13 @@
 {
-  "version": "orb-retrieval-benchmark-v1",
-  "description": "Canonical retrieval-first benchmark pack for the Hive orb. Paths are vault-relative and must validate against the current graph before UI action.",
+  "version": "retriever-benchmark-v1",
+  "description": "Canonical retrieval-first benchmark pack for the Hive Retriever. Paths are vault-relative and must validate against the current graph before UI action.",
   "generated_from_graph": {
     "path": "public/graph.json",
     "total_nodes": 1447,
     "total_edges": 2583
   },
   "response_contract": {
-    "version": "orb-retrieval-response-v1",
+    "version": "retriever-response-v1",
     "rules": [
       "Return retrieval intent, not archive essays.",
       "Allowed actions after normalization: resolve, candidates, clarify.",
@@ -37,7 +37,7 @@
       "id": "direct_soul",
       "category": "direct-resolve",
       "query": "open SOUL",
-      "why": "Canonical Walt boot target. The orb should hit this instantly with no extra ceremony.",
+      "why": "Canonical Walt boot target. The retriever should hit this instantly with no extra ceremony.",
       "gold": {
         "action": "resolve",
         "confidence": "high",
@@ -140,7 +140,7 @@
       "id": "clarify_readme",
       "category": "clarify",
       "query": "open README",
-      "why": "README exists in too many folders. The orb should ask one narrow question instead of guessing.",
+      "why": "README exists in too many folders. The retriever should ask one narrow question instead of guessing.",
       "gold": {
         "action": "clarify",
         "confidence": "low",

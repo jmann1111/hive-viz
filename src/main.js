@@ -4,7 +4,7 @@ import { Tesseract } from './core/tesseract.js';
 import { buildEdges, buildNodes, buildSkybox, highlightSelection, clearSelection, updateSelectionPulse, highlightSearchResults } from './core/graph-scene.js';
 import { createSidebar } from './core/sidebar.js';
 import { initReader, openReader, closeReader, isReaderOpen } from './core/reader.js';
-import { createOrb } from './core/orb.js';
+import { createRetrieverPanel } from './core/retriever-panel.js';
 import { createRetrievalClient } from './core/retrieval-client.js';
 
 // ============ RENDERER ============
@@ -108,7 +108,7 @@ let tesseract = null;
 let edgeHandle = null;
 let nodeHandle = null;
 let sidebarApi = null;
-let orb = null;
+let retrieverPanel = null;
 let selectedNode = null;
 let lastNavTimestamp = 0;
 let onSelectCallbacks = [];
@@ -333,12 +333,12 @@ function openInlineNode(nodeId, options = {}) {
   sidebarApi?.openInlineReader(nodeId);
 }
 
-function resolveOrbNodeRef(ref) {
+function resolveRetrieverNodeRef(ref) {
   if (!tesseract) return { node: null, validation: { nodeExists: false, pathExists: false } };
   return tesseract.resolveNodeRef(ref);
 }
 
-function toOrbResolvedState(resolved) {
+function toRetrieverResolvedState(resolved) {
   return {
     mode: 'resolved',
     resolved: {
@@ -350,29 +350,29 @@ function toOrbResolvedState(resolved) {
   };
 }
 
-function showOrbError(message) {
-  orb?.setState({
+function showRetrieverError(message) {
+  retrieverPanel?.setState({
     mode: 'error',
     message,
   });
 }
 
-function applyResolvedOrbResult(resolved) {
-  const resolution = resolveOrbNodeRef(resolved);
+function applyResolvedRetrieverResult(resolved) {
+  const resolution = resolveRetrieverNodeRef(resolved);
   if (!resolution.node) {
-    showOrbError('Resolved path was not found in the loaded graph.');
+    showRetrieverError('Resolved path was not found in the loaded graph.');
     return;
   }
 
-  orb?.setState(toOrbResolvedState(resolved));
+  retrieverPanel?.setState(toRetrieverResolvedState(resolved));
   openInlineNode(resolution.node.id, {
     deterministicFocus: true,
     forceFocus: true,
   });
 }
 
-function normalizeOrbCandidate(candidate) {
-  const resolution = resolveOrbNodeRef(candidate);
+function normalizeRetrieverCandidate(candidate) {
+  const resolution = resolveRetrieverNodeRef(candidate);
   if (!resolution.node) return null;
   return {
     ...candidate,
@@ -380,31 +380,31 @@ function normalizeOrbCandidate(candidate) {
   };
 }
 
-async function submitOrbQuery(query, options = {}) {
+async function submitRetrieverQuery(query, options = {}) {
   const trimmed = String(query || '').trim();
   if (!trimmed) return;
 
-  orb?.setState({ mode: 'searching' });
+  retrieverPanel?.setState({ mode: 'searching' });
 
   try {
     const response = await retrievalClient.retrieve(trimmed, clarificationContext, {
-      provider: options.provider || orb?.getProvider?.() || 'openai',
+      provider: options.provider || retrieverPanel?.getProvider?.() || 'openai',
     });
 
     if (response.intent === 'resolved') {
       clarificationContext = null;
-      applyResolvedOrbResult(response.resolved);
+      applyResolvedRetrieverResult(response.resolved);
       return;
     }
 
     if (response.intent === 'candidates') {
       clarificationContext = null;
-      const candidates = response.candidates.map(normalizeOrbCandidate).filter(Boolean);
+      const candidates = response.candidates.map(normalizeRetrieverCandidate).filter(Boolean);
       if (candidates.length === 0) {
-        showOrbError('Returned candidates did not map to real notes.');
+        showRetrieverError('Returned candidates did not map to real notes.');
         return;
       }
-      orb?.setState({
+      retrieverPanel?.setState({
         mode: 'candidates',
         candidates,
       });
@@ -415,12 +415,12 @@ async function submitOrbQuery(query, options = {}) {
       previousQuery: trimmed,
       question: response.question,
     };
-    orb?.setState({
+    retrieverPanel?.setState({
       mode: 'clarification',
       question: response.question,
     });
   } catch (error) {
-    showOrbError(error.message || 'Orb request failed.');
+    showRetrieverError(error.message || 'Retriever request failed.');
   }
 }
 
@@ -513,13 +513,13 @@ async function init() {
   // Sidebar
   sidebarApi = createSidebar(tesseract, selectNode, onSelectCallbacks, handleOpenReader, handleSearchHighlight);
 
-  // Orb
-  orb = createOrb({
-    mount: document.getElementById('orb-root'),
-    onSubmit: submitOrbQuery,
+  // Direct retrieval panel
+  retrieverPanel = createRetrieverPanel({
+    mount: document.getElementById('retriever-root'),
+    onSubmit: submitRetrieverQuery,
     onCandidateSelect: (candidate) => {
       clarificationContext = null;
-      applyResolvedOrbResult(candidate);
+      applyResolvedRetrieverResult(candidate);
     },
   });
 
@@ -545,7 +545,7 @@ async function init() {
     }
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
       e.preventDefault();
-      orb?.focus();
+      retrieverPanel?.focus();
       return;
     }
     if (e.key === '/' && e.target.tagName !== 'INPUT') {
@@ -602,7 +602,7 @@ async function init() {
     renderer.render(scene, camera);
   }
   animate();
-  console.log('Hive Viz alive.');
+  console.log('The Hive alive.');
 }
 
 // Wait for password gate unlock before initializing

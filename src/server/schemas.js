@@ -21,7 +21,7 @@ export const HIVE_FOLDERS = [
   '99-Assets',
 ];
 
-export const ORB_REQUEST_SCHEMA = {
+export const RETRIEVER_REQUEST_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   required: ['query', 'provider'],

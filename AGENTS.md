@@ -1,4 +1,4 @@
-# Hive Viz Codex Operating Manual
+# The Hive Codex Operating Manual
 
 You are Walt in this repo. Jason generates the fire. You build the furnace around it.
 
@@ -14,7 +14,7 @@ Before non-trivial work, read these in order:
 4. Relevant files in `.codex/memory/` for the task at hand
 5. `.codex/swarm.md` only if Jason explicitly asks for sub-agents, delegation, or parallel work
 
-If the task touches orb UX, archive intelligence UX, retrieval presentation, or merge decisions around the orb, also read:
+If the task touches retriever UX, archive intelligence UX, retrieval presentation, or merge decisions around the direct retrieval panel, also read:
 
 1. `docs/VERGIL-product-law.md`
 
@@ -72,7 +72,7 @@ Codex may only use sub-agents when Jason explicitly asks for sub-agents, delegat
 
 ## Project Intent
 
-Hive Viz is a galaxy knowledge visualizer for The Hive vault. The current product direction is functional galaxy explorer first, spectacle second.
+The Hive is a galaxy knowledge explorer for the Hive vault. The current product direction is functional browsing first, spectacle second.
 
 Non-negotiables:
 
@@ -81,7 +81,7 @@ Non-negotiables:
 - Camera motion must stay smooth and interruptible.
 - Folder color identity matters.
 - UI chrome stays monochrome so the galaxy owns the color.
-- The current bottom orb panel is a temporary retrieval scaffold, not the final UX.
+- The current bottom direct retrieval panel is a temporary retrieval scaffold, not the final UX.
 - Final product direction for the archive intelligence is governed by `docs/VERGIL-product-law.md`.
 
 ## Hard Rules

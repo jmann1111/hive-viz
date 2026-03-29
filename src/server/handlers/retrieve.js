@@ -43,8 +43,8 @@ export function sendJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload));
 }
 
-export function createOrbRetrieveHandler({ config, logger, providers, index }) {
-  return async function handleOrbRetrieve(req, res) {
+export function createRetrieveHandler({ config, logger, providers, index }) {
+  return async function handleRetrieve(req, res) {
     const requestId = crypto.randomUUID();
     const startedAt = Date.now();
 
@@ -54,7 +54,7 @@ export function createOrbRetrieveHandler({ config, logger, providers, index }) {
       const model = request.model || config.defaultModels[request.provider];
       const provider = getProviderClient(providers, request.provider);
 
-      logger.info('orb.retrieve.request', {
+      logger.info('retriever.retrieve.request', {
         requestId,
         provider: request.provider,
         model,
@@ -101,7 +101,7 @@ export function createOrbRetrieveHandler({ config, logger, providers, index }) {
       if (resolved.question) payload.question = resolved.question;
       if (resolved.candidateHints) payload.candidateHints = resolved.candidateHints;
 
-      logger.info('orb.retrieve.result', {
+      logger.info('retriever.retrieve.result', {
         requestId,
         provider: request.provider,
         model,
@@ -117,7 +117,7 @@ export function createOrbRetrieveHandler({ config, logger, providers, index }) {
       const statusCode = error.status || 500;
       const latencyMs = Date.now() - startedAt;
 
-      logger.error('orb.retrieve.error', {
+      logger.error('retriever.retrieve.error', {
         requestId,
         latencyMs,
         statusCode,
