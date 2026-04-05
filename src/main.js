@@ -1,16 +1,14 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Tesseract } from './core/tesseract.js';
-import { buildEdges, buildNodes, buildSkybox, highlightSelection, clearSelection, updateSelectionPulse, highlightSearchResults } from './core/graph-scene.js';
+import { buildEdges, buildNodes, buildSkybox, highlightSelection, clearSelection, highlightSearchResults, syncPositions } from './core/graph-scene.js';
 import { createSidebar } from './core/sidebar.js';
 import { initReader, openReader, closeReader, isReaderOpen } from './core/reader.js';
-import { createRetrieverPanel } from './core/retriever-panel.js';
-import { createRetrievalClient } from './core/retrieval-client.js';
 
 // ============ RENDERER ============
 const appEl = document.getElementById('app');
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(window.devicePixelRatio);
 appEl.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -28,96 +26,21 @@ controls.zoomSpeed = 1.2;
 controls.minDistance = 30;
 controls.maxDistance = 800; // Never escape the galaxy
 
-// ============ ZOOM SLIDER ============
-// Controls how close the camera ends up to a node after flying.
-// 0 = close-up (tight on the node), 1 = zoomed out (wide view, see more galaxy)
-let zoomLevel = 0.6; // default: moderately wide
-
-function createControls() {
-  const style = document.createElement('style');
-  style.textContent = `
-    #hive-controls {
-      position: absolute; bottom: 10px; right: 10px; z-index: 20;
-      display: flex; align-items: center; gap: 12px;
-      background: rgba(12,12,14,0.8); border: 1px solid #1c1c1f;
-      border-radius: 14px; padding: 5px 12px;
-    }
-    #hive-controls span { font-size: 8px; color: #333; letter-spacing: 0.3px; user-select: none; text-transform: uppercase; }
-    #hive-controls .ctrl-sep { width: 1px; height: 12px; background: #1c1c1f; }
-    #hive-controls input[type="range"] {
-      -webkit-appearance: none; appearance: none;
-      width: 60px; height: 2px; background: #1c1c1f; border-radius: 1px;
-      outline: none; cursor: pointer;
-    }
-    #hive-controls input[type="range"]::-webkit-slider-thumb {
-      -webkit-appearance: none; appearance: none;
-      width: 8px; height: 8px; border-radius: 50%;
-      background: #444; border: none; cursor: pointer;
-    }
-    #hive-controls input[type="range"]::-webkit-slider-thumb:hover { background: #666; }
-    #hive-controls input[type="checkbox"] {
-      width: 22px; height: 11px; border-radius: 6px; border: 1px solid #1c1c1f;
-      background: #111; cursor: pointer; position: relative; transition: background 0.2s;
-      appearance: none; -webkit-appearance: none; outline: none;
-    }
-    #hive-controls input[type="checkbox"]:checked { background: #222; }
-    #hive-controls input[type="checkbox"]::after {
-      content: ''; position: absolute; top: 1px; left: 1px;
-      width: 7px; height: 7px; border-radius: 50%;
-      background: #444; transition: transform 0.2s, background 0.2s;
-    }
-    #hive-controls input[type="checkbox"]:checked::after { transform: translateX(11px); background: #999; }
-  `;
-  document.head.appendChild(style);
-
-  const bar = document.createElement('div');
-  bar.id = 'hive-controls';
-  bar.innerHTML = `
-    <span>Rotate</span>
-    <input type="checkbox" id="rotate-toggle">
-    <input type="range" id="rotate-speed" min="5" max="100" value="30">
-    <div class="ctrl-sep"></div>
-    <span>Zoom</span>
-    <input type="range" id="zoom-slider" min="0" max="100" value="60">
-  `;
-  appEl.appendChild(bar);
-
-  // Zoom
-  document.getElementById('zoom-slider').addEventListener('input', (e) => {
-    zoomLevel = parseInt(e.target.value) / 100;
-    if (!cameraGoal && controls.target) {
-      const targetDist = 40 + zoomLevel * 960;
-      const dir = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
-      camera.position.copy(controls.target).add(dir.multiplyScalar(targetDist));
-    }
-  });
-
-  // Rotate
-  document.getElementById('rotate-toggle').addEventListener('change', (e) => {
-    autoRotateOn = e.target.checked;
-    syncAutoRotate();
-  });
-  document.getElementById('rotate-speed').addEventListener('input', (e) => {
-    autoRotateSpeed = parseInt(e.target.value) / 100;
-    syncAutoRotate();
-  });
-}
+// ============ ZOOM ============
+let zoomLevel = 0.6;
 
 // ============ STATE ============
 let tesseract = null;
 let edgeHandle = null;
 let nodeHandle = null;
+let skyboxRef = null;
 let sidebarApi = null;
-let retrieverPanel = null;
 let selectedNode = null;
 let lastNavTimestamp = 0;
 let onSelectCallbacks = [];
 const clock = new THREE.Clock();
-const retrievalClient = createRetrievalClient();
-let clarificationContext = null;
 
 // ============ SMOOTH CAMERA ============
-let flyState = null; // kept for compat checks
 let cameraGoal = null;
 let cameraTarget = null;
 const BASE_FOV = 60;
@@ -177,7 +100,10 @@ function updateCamera() {
   }
 
   camera.position.lerp(cameraGoal, SMOOTH_FACTOR);
-  controls.target.lerp(cameraTarget, SMOOTH_FACTOR);
+  // Don't move the orbit target away from center during auto-rotate
+  if (!autoRotateOn) {
+    controls.target.lerp(cameraTarget, SMOOTH_FACTOR);
+  }
 
   if (camera.position.distanceTo(cameraGoal) < 0.5) {
     cameraGoal = null;
@@ -186,11 +112,19 @@ function updateCamera() {
 }
 
 function updateSize() {
+  // Re-read DPR every resize -- handles dragging between monitors
+  const dpr = window.devicePixelRatio;
+  renderer.setPixelRatio(dpr);
+
   const w = appEl.clientWidth;
   const h = appEl.clientHeight;
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setSize(w, h);
+
+  // Update shader uniforms so point sizes match the new DPR
+  if (nodeHandle?.material?.uniforms?.uPixelRatio) nodeHandle.material.uniforms.uPixelRatio.value = dpr;
+  if (skyboxRef?.starMat?.uniforms?.uPixelRatio) skyboxRef.starMat.uniforms.uPixelRatio.value = dpr;
 }
 
 
@@ -234,28 +168,52 @@ function resetIdleTimer() {
 }
 
 
-function createLegend() {
-  const legend = document.createElement('div');
-  legend.style.cssText = 'position:absolute;bottom:14px;left:14px;z-index:20;font-size:9px;line-height:1.6;color:#444;';
-  const items = [
-    ['#2299aa', 'Sessions'],
-    ['#3377cc', 'Architecture'],
-    ['#7744bb', 'Projects'],
-    ['#5533aa', 'Decisions'],
-    ['#22aacc', 'Playbooks'],
-    ['#aa8833', 'Knowledge'],
-    ['#33aa66', 'Ops'],
-    ['#993355', 'Secure'],
-  ];
-  legend.innerHTML = items.map(([c, n]) =>
-    `<div style="display:flex;align-items:center;gap:5px;"><span style="width:6px;height:6px;border-radius:50%;background:${c};flex-shrink:0;opacity:0.7;"></span>${n}</div>`
-  ).join('');
-  appEl.appendChild(legend);
-}
 
 function syncAutoRotate() {
   controls.autoRotate = autoRotateOn;
   controls.autoRotateSpeed = 0.1 + autoRotateSpeed * 2.5; // maps 0-1 to 0.1-2.6
+  // Always rotate around the true center, not a selected node
+  if (autoRotateOn) {
+    controls.target.set(0, 0, 0);
+  }
+}
+
+// ============ LIGHTSHOW ============
+let lightMode = 0; // 0 = off
+let lightSpeed = 1.0;
+let lightIntensity = 1.0;
+
+const LIGHTSHOW_PRESETS = {
+  off: { label: 'Off', mode: 0 },
+  spectrum: { label: 'Spectrum Wave', mode: 1 },
+  breathe: { label: 'Breathe', mode: 2 },
+  ripple: { label: 'Ripple', mode: 3 },
+  starlight: { label: 'Starlight', mode: 4 },
+  fire: { label: 'Fire', mode: 5 },
+  aurora: { label: 'Aurora', mode: 6 },
+  matrix: { label: 'Matrix', mode: 7 },
+  heartbeat: { label: 'Heartbeat', mode: 8 },
+  ocean: { label: 'Ocean', mode: 9 },
+  lightning: { label: 'Lightning', mode: 10 },
+  lava: { label: 'Lava', mode: 11 },
+  frozen: { label: 'Frozen', mode: 12 },
+  reactive: { label: 'Reactive Pulse', mode: 13 },
+  strobe: { label: 'Strobe', mode: 14 },
+  comet: { label: 'Comet', mode: 15 },
+  galaxy_spin: { label: 'Galaxy Spin', mode: 16 },
+};
+
+function syncLightshow() {
+  if (nodeHandle?.material?.uniforms) {
+    nodeHandle.material.uniforms.uLightMode.value = lightMode;
+    nodeHandle.material.uniforms.uLightSpeed.value = lightSpeed;
+    nodeHandle.material.uniforms.uLightIntensity.value = lightIntensity;
+  }
+  if (edgeHandle?.material?.uniforms) {
+    edgeHandle.material.uniforms.uLightMode.value = lightMode;
+    edgeHandle.material.uniforms.uLightSpeed.value = lightSpeed;
+    edgeHandle.material.uniforms.uLightIntensity.value = lightIntensity;
+  }
 }
 
 // ============ BREADCRUMB TRAIL ============
@@ -333,96 +291,6 @@ function openInlineNode(nodeId, options = {}) {
   sidebarApi?.openInlineReader(nodeId);
 }
 
-function resolveRetrieverNodeRef(ref) {
-  if (!tesseract) return { node: null, validation: { nodeExists: false, pathExists: false } };
-  return tesseract.resolveNodeRef(ref);
-}
-
-function toRetrieverResolvedState(resolved) {
-  return {
-    mode: 'resolved',
-    resolved: {
-      nodeId: resolved.nodeId,
-      title: resolved.title,
-      folder: resolved.folder,
-      score: resolved.score,
-    },
-  };
-}
-
-function showRetrieverError(message) {
-  retrieverPanel?.setState({
-    mode: 'error',
-    message,
-  });
-}
-
-function applyResolvedRetrieverResult(resolved) {
-  const resolution = resolveRetrieverNodeRef(resolved);
-  if (!resolution.node) {
-    showRetrieverError('Resolved path was not found in the loaded graph.');
-    return;
-  }
-
-  retrieverPanel?.setState(toRetrieverResolvedState(resolved));
-  openInlineNode(resolution.node.id, {
-    deterministicFocus: true,
-    forceFocus: true,
-  });
-}
-
-function normalizeRetrieverCandidate(candidate) {
-  const resolution = resolveRetrieverNodeRef(candidate);
-  if (!resolution.node) return null;
-  return {
-    ...candidate,
-    nodeId: resolution.node.id,
-  };
-}
-
-async function submitRetrieverQuery(query, options = {}) {
-  const trimmed = String(query || '').trim();
-  if (!trimmed) return;
-
-  retrieverPanel?.setState({ mode: 'searching' });
-
-  try {
-    const response = await retrievalClient.retrieve(trimmed, clarificationContext, {
-      provider: options.provider || retrieverPanel?.getProvider?.() || 'openai',
-    });
-
-    if (response.intent === 'resolved') {
-      clarificationContext = null;
-      applyResolvedRetrieverResult(response.resolved);
-      return;
-    }
-
-    if (response.intent === 'candidates') {
-      clarificationContext = null;
-      const candidates = response.candidates.map(normalizeRetrieverCandidate).filter(Boolean);
-      if (candidates.length === 0) {
-        showRetrieverError('Returned candidates did not map to real notes.');
-        return;
-      }
-      retrieverPanel?.setState({
-        mode: 'candidates',
-        candidates,
-      });
-      return;
-    }
-
-    clarificationContext = {
-      previousQuery: trimmed,
-      question: response.question,
-    };
-    retrieverPanel?.setState({
-      mode: 'clarification',
-      question: response.question,
-    });
-  } catch (error) {
-    showRetrieverError(error.message || 'Retriever request failed.');
-  }
-}
 
 // ============ CLICK DETECTION ============
 const raycaster = new THREE.Raycaster();
@@ -443,6 +311,9 @@ function hitTestNode(clientX, clientY) {
   return null;
 }
 
+let lastClickTime = 0;
+let lastClickNode = null;
+
 renderer.domElement.addEventListener('pointerdown', (e) => {
   mouseDownPos = { x: e.clientX, y: e.clientY };
   userDragging = true;
@@ -457,10 +328,21 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   if (Math.abs(dx) + Math.abs(dy) > 5) return;
 
   const nodeId = hitTestNode(e.clientX, e.clientY);
+  const now = performance.now();
+
   if (nodeId) {
-    selectNode(nodeId);
+    // Double-click: open inline reader
+    if (nodeId === lastClickNode && now - lastClickTime < 400) {
+      openInlineNode(nodeId, { deterministicFocus: true, forceFocus: true });
+      lastClickNode = null;
+    } else {
+      selectNode(nodeId);
+      lastClickNode = nodeId;
+    }
+    lastClickTime = now;
   } else {
     deselectNode();
+    lastClickNode = null;
   }
 });
 
@@ -486,20 +368,1088 @@ function toggleSidebar() {
   setTimeout(updateSize, 260);
 }
 
+// ============ LAYOUT PRESETS ============
+const LAYOUT_PRESETS = {
+  galaxy: { label: 'Galaxy', fn: layoutGalaxy },
+  helix: { label: 'DNA Helix', fn: layoutHelix },
+  sphere: { label: 'Sphere', fn: layoutSphere },
+  ring: { label: 'Halo Ring', fn: layoutRing },
+  pyramid: { label: 'Pyramid', fn: layoutPyramid },
+  grid: { label: 'Grid Cube', fn: layoutGrid },
+  spiral: { label: 'Spiral Tower', fn: layoutSpiral },
+  tree: { label: 'Tree', fn: layoutTree },
+  torus_knot: { label: 'Torus Knot', fn: layoutTorusKnot },
+  flower: { label: 'Flower of Life', fn: layoutFlower },
+  metatron: { label: 'Metatron Cube', fn: layoutMetatron },
+  vesica: { label: 'Vesica Piscis', fn: layoutVesica },
+  icosahedron: { label: 'Icosahedron', fn: layoutIcosahedron },
+  mobius: { label: 'Mobius Strip', fn: layoutMobius },
+  galaxy_arm: { label: 'Spiral Galaxy', fn: layoutGalaxyArm },
+  ufo: { label: 'UFO', fn: layoutUFO },
+  crop_circle: { label: 'Crop Circle', fn: layoutCropCircle },
+  wormhole: { label: 'Wormhole', fn: layoutWormhole },
+  infinity: { label: 'Infinity', fn: layoutInfinity },
+  wave: { label: 'Wave', fn: layoutWave },
+  shell: { label: 'Nautilus', fn: layoutShell },
+  constellation: { label: 'Constellation', fn: layoutConstellation },
+  atom: { label: 'Atom', fn: layoutAtom },
+  tornado: { label: 'Tornado', fn: layoutTornado },
+  hourglass: { label: 'Hourglass', fn: layoutHourglass },
+  crown: { label: 'Crown', fn: layoutCrown },
+  wings: { label: 'Wings', fn: layoutWings },
+  eye: { label: 'Eye', fn: layoutEye },
+  heart: { label: 'Heart', fn: layoutHeart },
+};
+
+let layoutTransition = null; // { from, to, t, duration }
+
+function sortedNodeIndices(tesseract) {
+  // Sort by folder then link count for visual clustering
+  const nodes = tesseract.nodes;
+  const indices = Array.from({ length: nodes.length }, (_, i) => i);
+  indices.sort((a, b) => {
+    const fa = nodes[a].folder || '';
+    const fb = nodes[b].folder || '';
+    if (fa !== fb) return fa.localeCompare(fb);
+    return (nodes[b].linkCount || 0) - (nodes[a].linkCount || 0);
+  });
+  return indices;
+}
+
+function layoutGalaxy(tesseract) {
+  // Restore original d3-force positions
+  return tesseract.nodes.map(n => ({ x: n._origX, y: n._origY, z: n._origZ }));
+}
+
+function layoutHelix(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(tesseract.nodes.length);
+  const height = 600;
+  const radius = 150;
+  const turns = 6;
+  for (let rank = 0; rank < n; rank++) {
+    const t = rank / (n - 1);
+    const angle = t * Math.PI * 2 * turns;
+    // Double helix: alternate strands
+    const strand = rank % 2 === 0 ? 1 : -1;
+    positions[sorted[rank]] = {
+      x: Math.cos(angle) * radius * strand,
+      y: (t - 0.5) * height,
+      z: Math.sin(angle) * radius * strand,
+    };
+  }
+  return positions;
+}
+
+function layoutSphere(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  const radius = 250;
+  // Fibonacci sphere for even distribution
+  const phi = (1 + Math.sqrt(5)) / 2;
+  for (let rank = 0; rank < n; rank++) {
+    const y = 1 - (2 * rank) / (n - 1);
+    const r = Math.sqrt(1 - y * y);
+    const theta = 2 * Math.PI * rank / phi;
+    // Hub nodes (high link count) get slightly larger radius
+    const linkBoost = 1 + (tesseract.nodes[sorted[rank]].linkCount || 0) * 0.002;
+    positions[sorted[rank]] = {
+      x: Math.cos(theta) * r * radius * linkBoost,
+      y: y * radius * linkBoost,
+      z: Math.sin(theta) * r * radius * linkBoost,
+    };
+  }
+  return positions;
+}
+
+function layoutRing(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  const radius = 300;
+  const tubeRadius = 30;
+  for (let rank = 0; rank < n; rank++) {
+    const t = rank / n;
+    const angle = t * Math.PI * 2;
+    // Torus: main circle + tube offset
+    const tubeAngle = (rank * 7.3) % (Math.PI * 2); // spread around tube
+    const r = radius + Math.cos(tubeAngle) * tubeRadius;
+    positions[sorted[rank]] = {
+      x: Math.cos(angle) * r,
+      y: Math.sin(tubeAngle) * tubeRadius,
+      z: Math.sin(angle) * r,
+    };
+  }
+  return positions;
+}
+
+function layoutPyramid(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  const layers = 12;
+  let placed = 0;
+  for (let layer = 0; layer < layers && placed < n; layer++) {
+    const t = layer / (layers - 1);
+    const layerRadius = (1 - t) * 250; // wider at bottom
+    const y = (t - 0.5) * 500;
+    const perLayer = Math.max(1, Math.floor((1 - t) * (n / (layers * 0.4))));
+    for (let j = 0; j < perLayer && placed < n; j++) {
+      const angle = (j / perLayer) * Math.PI * 2 + layer * 0.3;
+      positions[sorted[placed]] = {
+        x: Math.cos(angle) * layerRadius,
+        y: y,
+        z: Math.sin(angle) * layerRadius,
+      };
+      placed++;
+    }
+  }
+  return positions;
+}
+
+function layoutGrid(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  const side = Math.ceil(Math.cbrt(n));
+  const spacing = 40;
+  const offset = (side - 1) * spacing / 2;
+  for (let rank = 0; rank < n; rank++) {
+    const ix = rank % side;
+    const iy = Math.floor(rank / side) % side;
+    const iz = Math.floor(rank / (side * side));
+    positions[sorted[rank]] = {
+      x: ix * spacing - offset,
+      y: iy * spacing - offset,
+      z: iz * spacing - offset,
+    };
+  }
+  return positions;
+}
+
+function layoutSpiral(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  const height = 700;
+  const turns = 8;
+  for (let rank = 0; rank < n; rank++) {
+    const t = rank / (n - 1);
+    const angle = t * Math.PI * 2 * turns;
+    const radius = 50 + t * 200; // expanding spiral
+    positions[sorted[rank]] = {
+      x: Math.cos(angle) * radius,
+      y: (t - 0.5) * height,
+      z: Math.sin(angle) * radius,
+    };
+  }
+  return positions;
+}
+
+function layoutTree(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  // Group by folder, stack vertically
+  const folders = {};
+  for (const idx of sorted) {
+    const f = tesseract.nodes[idx].folder || 'unknown';
+    if (!folders[f]) folders[f] = [];
+    folders[f].push(idx);
+  }
+  const folderKeys = Object.keys(folders);
+  const angleStep = (Math.PI * 2) / folderKeys.length;
+  for (let fi = 0; fi < folderKeys.length; fi++) {
+    const group = folders[folderKeys[fi]];
+    const branchAngle = fi * angleStep;
+    const branchRadius = 200;
+    for (let j = 0; j < group.length; j++) {
+      const t = j / Math.max(1, group.length - 1);
+      const spread = 30 + t * 60;
+      const jitter = ((j * 17) % 7 - 3) * 8;
+      positions[group[j]] = {
+        x: Math.cos(branchAngle) * (branchRadius * t + spread) + jitter,
+        y: -250 + t * 500,
+        z: Math.sin(branchAngle) * (branchRadius * t + spread) + jitter,
+      };
+    }
+  }
+  return positions;
+}
+
+function layoutTorusKnot(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  const R = 200, r = 80, p = 2, q = 3;
+  for (let rank = 0; rank < n; rank++) {
+    const t = (rank / n) * Math.PI * 2 * p;
+    const phi = (rank / n) * Math.PI * 2 * q;
+    const x = (R + r * Math.cos(phi)) * Math.cos(t);
+    const y = (R + r * Math.cos(phi)) * Math.sin(t);
+    const z = r * Math.sin(phi);
+    positions[sorted[rank]] = { x, y, z };
+  }
+  return positions;
+}
+
+function layoutFlower(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  const petals = 6;
+  const layers = 10;
+  for (let rank = 0; rank < n; rank++) {
+    const layer = Math.floor((rank / n) * layers);
+    const layerR = 50 + layer * 35;
+    const angle = (rank / n) * Math.PI * 2 * 8 + layer * 0.5;
+    const petalPulse = 1 + 0.35 * Math.cos(angle * petals);
+    const z = (layer - layers / 2) * 20;
+    positions[sorted[rank]] = {
+      x: Math.cos(angle) * layerR * petalPulse,
+      y: Math.sin(angle) * layerR * petalPulse,
+      z,
+    };
+  }
+  return positions;
+}
+
+function layoutMetatron(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  const keyPoints = [{ x: 0, y: 0 }];
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    keyPoints.push({ x: Math.cos(a) * 200, y: Math.sin(a) * 200 });
+    keyPoints.push({ x: Math.cos(a) * 100, y: Math.sin(a) * 100 });
+  }
+  for (let rank = 0; rank < n; rank++) {
+    const kp = keyPoints[rank % keyPoints.length];
+    const shell = Math.floor(rank / keyPoints.length);
+    const r = 15 + shell * 8;
+    const angle = rank * 2.399;
+    positions[sorted[rank]] = {
+      x: kp.x + Math.cos(angle) * r,
+      y: kp.y + Math.sin(angle) * r,
+      z: (shell - Math.floor(n / keyPoints.length / 2)) * 18,
+    };
+  }
+  return positions;
+}
+
+function layoutVesica(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  const R = 180, offset = 120;
+  for (let rank = 0; rank < n; rank++) {
+    const circle = rank % 2;
+    const t = (rank / n) * Math.PI * 2 * 3;
+    const r = R * (0.3 + 0.7 * Math.abs(Math.sin(t * 0.5)));
+    const cx = circle === 0 ? -offset / 2 : offset / 2;
+    positions[sorted[rank]] = {
+      x: cx + Math.cos(t) * r * 0.7,
+      y: Math.sin(t) * r,
+      z: ((rank * 7) % 50 - 25),
+    };
+  }
+  return positions;
+}
+
+function layoutIcosahedron(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  const phi = (1 + Math.sqrt(5)) / 2;
+  const verts = [
+    [-1, phi, 0], [1, phi, 0], [-1, -phi, 0], [1, -phi, 0],
+    [0, -1, phi], [0, 1, phi], [0, -1, -phi], [0, 1, -phi],
+    [phi, 0, -1], [phi, 0, 1], [-phi, 0, -1], [-phi, 0, 1],
+  ];
+  const scale = 180;
+  for (let rank = 0; rank < n; rank++) {
+    const v = verts[rank % verts.length];
+    const shell = Math.floor(rank / verts.length);
+    const jitter = shell * 12;
+    const angle = rank * 2.399;
+    positions[sorted[rank]] = {
+      x: v[0] * scale + Math.cos(angle) * jitter,
+      y: v[1] * scale + Math.sin(angle) * jitter,
+      z: v[2] * scale + Math.cos(angle * 1.3) * jitter,
+    };
+  }
+  return positions;
+}
+
+function layoutMobius(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  const R = 250, w = 60;
+  for (let rank = 0; rank < n; rank++) {
+    const t = (rank / n) * Math.PI * 2;
+    const s = ((rank % 5) / 4 - 0.5) * w;
+    const halfT = t / 2;
+    positions[sorted[rank]] = {
+      x: (R + s * Math.cos(halfT)) * Math.cos(t),
+      y: (R + s * Math.cos(halfT)) * Math.sin(t) * 0.5,
+      z: s * Math.sin(halfT),
+    };
+  }
+  return positions;
+}
+
+function layoutGalaxyArm(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  const arms = 4;
+  for (let rank = 0; rank < n; rank++) {
+    const arm = rank % arms;
+    const t = (rank / n) * 3;
+    const angle = t * Math.PI * 2 + (arm / arms) * Math.PI * 2;
+    const r = 30 + t * 200;
+    const scatter = 15 + t * 20;
+    const jx = (Math.sin(rank * 127.1) * 0.5 + 0.5) * scatter;
+    const jz = (Math.sin(rank * 311.7) * 0.5 + 0.5) * scatter;
+    positions[sorted[rank]] = {
+      x: Math.cos(angle) * r + jx,
+      y: (Math.sin(rank * 43.7) * 0.5) * 30 * t,
+      z: Math.sin(angle) * r + jz,
+    };
+  }
+  return positions;
+}
+
+function layoutUFO(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  for (let rank = 0; rank < n; rank++) {
+    const t = rank / n;
+    if (t < 0.6) {
+      // Disc
+      const angle = (rank / (n * 0.6)) * Math.PI * 2 * 5;
+      const r = 50 + (rank / (n * 0.6)) * 250;
+      const flatness = 1 - Math.pow(Math.abs(r - 150) / 150, 2);
+      positions[sorted[rank]] = {
+        x: Math.cos(angle) * r,
+        y: Math.sin(rank * 2.1) * 8 * flatness,
+        z: Math.sin(angle) * r,
+      };
+    } else if (t < 0.8) {
+      // Dome top
+      const dt = (t - 0.6) / 0.2;
+      const angle = dt * Math.PI * 2 * 3;
+      const r = (1 - dt) * 100;
+      positions[sorted[rank]] = {
+        x: Math.cos(angle) * r,
+        y: 20 + dt * 120,
+        z: Math.sin(angle) * r,
+      };
+    } else {
+      // Beam below
+      const bt = (t - 0.8) / 0.2;
+      const angle = bt * Math.PI * 2 * 2;
+      const r = bt * 60;
+      positions[sorted[rank]] = {
+        x: Math.cos(angle) * r,
+        y: -20 - bt * 200,
+        z: Math.sin(angle) * r,
+      };
+    }
+  }
+  return positions;
+}
+
+function layoutCropCircle(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  const rings = 8;
+  for (let rank = 0; rank < n; rank++) {
+    const ri = Math.floor((rank / n) * rings);
+    const r = 40 + ri * 40;
+    const ringStart = Math.floor((ri / rings) * n);
+    const ringEnd = Math.floor(((ri + 1) / rings) * n);
+    const j = rank - ringStart;
+    const count = ringEnd - ringStart;
+    const angle = (j / count) * Math.PI * 2 + ri * 0.5;
+    positions[sorted[rank]] = {
+      x: Math.cos(angle) * r,
+      y: (rank % 3 - 1) * 5,
+      z: Math.sin(angle) * r,
+    };
+  }
+  return positions;
+}
+
+function layoutWormhole(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  for (let rank = 0; rank < n; rank++) {
+    const t = (rank / n) * 2 - 1; // -1 to 1
+    const angle = rank * 0.5;
+    const r = 30 + 200 * Math.pow(Math.abs(t), 0.5);
+    positions[sorted[rank]] = {
+      x: Math.cos(angle) * r,
+      y: t * 350,
+      z: Math.sin(angle) * r,
+    };
+  }
+  return positions;
+}
+
+function layoutInfinity(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  const scale = 250;
+  for (let rank = 0; rank < n; rank++) {
+    const t = (rank / n) * Math.PI * 2;
+    const r = scale * Math.cos(t);
+    const layer = ((rank * 7) % 20 - 10) * 3;
+    positions[sorted[rank]] = {
+      x: r * Math.cos(t),
+      y: r * Math.sin(t) * 0.5,
+      z: layer,
+    };
+  }
+  return positions;
+}
+
+function layoutWave(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  const side = Math.ceil(Math.sqrt(n));
+  const spacing = 25;
+  for (let rank = 0; rank < n; rank++) {
+    const ix = rank % side;
+    const iz = Math.floor(rank / side);
+    const x = (ix - side / 2) * spacing;
+    const z = (iz - side / 2) * spacing;
+    const y = Math.sin(ix * 0.3) * Math.cos(iz * 0.3) * 80;
+    positions[sorted[rank]] = { x, y, z };
+  }
+  return positions;
+}
+
+function layoutShell(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  for (let rank = 0; rank < n; rank++) {
+    const t = (rank / n) * 6 * Math.PI;
+    const r = 10 + t * 12;
+    const y = (rank / n - 0.5) * 400;
+    positions[sorted[rank]] = {
+      x: Math.cos(t) * r,
+      y,
+      z: Math.sin(t) * r,
+    };
+  }
+  return positions;
+}
+
+function layoutConstellation(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  // Random but deterministic scatter in a flat-ish disc
+  for (let rank = 0; rank < n; rank++) {
+    const hash1 = Math.sin(rank * 127.1 + 311.7) * 43758.5453;
+    const hash2 = Math.sin(rank * 269.5 + 183.3) * 43758.5453;
+    const hash3 = Math.sin(rank * 419.2 + 371.9) * 43758.5453;
+    const r = 50 + (hash1 - Math.floor(hash1)) * 350;
+    const angle = (hash2 - Math.floor(hash2)) * Math.PI * 2;
+    positions[sorted[rank]] = {
+      x: Math.cos(angle) * r,
+      y: ((hash3 - Math.floor(hash3)) - 0.5) * 80,
+      z: Math.sin(angle) * r,
+    };
+  }
+  return positions;
+}
+
+function layoutAtom(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  const nucleus = Math.floor(n * 0.15);
+  const orbits = 3;
+  for (let rank = 0; rank < n; rank++) {
+    if (rank < nucleus) {
+      // Dense core
+      const phi2 = (1 + Math.sqrt(5)) / 2;
+      const y = 1 - (2 * rank) / (nucleus - 1);
+      const r = Math.sqrt(1 - y * y);
+      const theta = 2 * Math.PI * rank / phi2;
+      positions[sorted[rank]] = {
+        x: Math.cos(theta) * r * 40,
+        y: y * 40,
+        z: Math.sin(theta) * r * 40,
+      };
+    } else {
+      const orbit = (rank - nucleus) % orbits;
+      const t = ((rank - nucleus) / (n - nucleus)) * Math.PI * 2 * 8;
+      const R = 150 + orbit * 80;
+      const tilt = orbit * Math.PI / orbits;
+      const x = Math.cos(t) * R;
+      const y2 = Math.sin(t) * R * Math.cos(tilt);
+      const z = Math.sin(t) * R * Math.sin(tilt);
+      positions[sorted[rank]] = { x, y: y2, z };
+    }
+  }
+  return positions;
+}
+
+function layoutTornado(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  for (let rank = 0; rank < n; rank++) {
+    const t = rank / n;
+    const angle = t * Math.PI * 2 * 12;
+    const r = 20 + t * t * 300;
+    const y = (t - 0.5) * 600;
+    positions[sorted[rank]] = {
+      x: Math.cos(angle) * r,
+      y,
+      z: Math.sin(angle) * r,
+    };
+  }
+  return positions;
+}
+
+function layoutHourglass(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  for (let rank = 0; rank < n; rank++) {
+    const t = (rank / n) * 2 - 1; // -1 to 1
+    const r = 30 + 200 * Math.abs(t);
+    const angle = rank * 2.399;
+    positions[sorted[rank]] = {
+      x: Math.cos(angle) * r,
+      y: t * 300,
+      z: Math.sin(angle) * r,
+    };
+  }
+  return positions;
+}
+
+function layoutCrown(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  const points = 8;
+  for (let rank = 0; rank < n; rank++) {
+    const t = (rank / n) * Math.PI * 2;
+    const r = 200;
+    const spike = Math.pow(Math.abs(Math.sin(t * points / 2)), 3) * 120;
+    const layer = (rank % 4) * 15;
+    positions[sorted[rank]] = {
+      x: Math.cos(t) * r,
+      y: spike + layer,
+      z: Math.sin(t) * r,
+    };
+  }
+  return positions;
+}
+
+function layoutWings(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  for (let rank = 0; rank < n; rank++) {
+    const side = rank % 2 === 0 ? 1 : -1;
+    const t = (rank / n) * Math.PI * 0.9;
+    const span = 50 + (rank / n) * 300;
+    const lift = Math.sin(t) * 150;
+    const depth = ((rank * 13) % 30 - 15);
+    positions[sorted[rank]] = {
+      x: side * span * Math.cos(t * 0.5),
+      y: lift - Math.pow(rank / n, 2) * 100,
+      z: depth + Math.sin(t * 2) * 30,
+    };
+  }
+  return positions;
+}
+
+function layoutEye(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  const pupil = Math.floor(n * 0.15);
+  for (let rank = 0; rank < n; rank++) {
+    if (rank < pupil) {
+      // Dense center pupil
+      const angle = rank * 2.399;
+      const r = Math.sqrt(rank / pupil) * 50;
+      positions[sorted[rank]] = {
+        x: Math.cos(angle) * r,
+        y: Math.sin(angle) * r,
+        z: ((rank % 5) - 2) * 8,
+      };
+    } else {
+      // Eye shape (2D almond)
+      const t = ((rank - pupil) / (n - pupil)) * Math.PI * 2;
+      const rx = 300;
+      const ry = 150 * Math.sin(t * 0.5);
+      const layer = ((rank * 7) % 10 - 5) * 4;
+      positions[sorted[rank]] = {
+        x: Math.cos(t) * rx,
+        y: Math.sin(t) * Math.abs(ry),
+        z: layer,
+      };
+    }
+  }
+  return positions;
+}
+
+function layoutHeart(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  for (let rank = 0; rank < n; rank++) {
+    const t = (rank / n) * Math.PI * 2;
+    // Heart parametric
+    const x = 16 * Math.pow(Math.sin(t), 3);
+    const y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+    const layer = ((rank * 11) % 20 - 10) * 4;
+    const scale = 18;
+    positions[sorted[rank]] = {
+      x: x * scale,
+      y: y * scale,
+      z: layer,
+    };
+  }
+  return positions;
+}
+
+function startLayoutTransition(presetName) {
+  if (!tesseract || !nodeHandle) return;
+  const preset = LAYOUT_PRESETS[presetName];
+  if (!preset) return;
+
+  const nodes = tesseract.nodes;
+  const from = nodes.map(n => ({ x: n.x, y: n.y, z: n.z }));
+  const to = preset.fn(tesseract);
+
+  // Safety: fill any missing positions so no node flies to origin
+  for (let i = 0; i < nodes.length; i++) {
+    if (!to[i]) to[i] = { x: from[i].x, y: from[i].y, z: from[i].z };
+  }
+
+  layoutTransition = { from, to, t: 0, duration: 1.5 };
+}
+
+function updateLayoutTransition(dt) {
+  if (!layoutTransition || !tesseract) return;
+  layoutTransition.t += dt / layoutTransition.duration;
+
+  const t = Math.min(layoutTransition.t, 1);
+  // Smoothstep easing
+  const ease = t * t * (3 - 2 * t);
+  const nodes = tesseract.nodes;
+
+  for (let i = 0; i < nodes.length; i++) {
+    const f = layoutTransition.from[i];
+    const to = layoutTransition.to[i];
+    if (!f || !to) continue;
+    nodes[i].x = f.x + (to.x - f.x) * ease;
+    nodes[i].y = f.y + (to.y - f.y) * ease;
+    nodes[i].z = f.z + (to.z - f.z) * ease;
+  }
+
+  syncPositions(tesseract, edgeHandle, nodeHandle);
+
+  if (t >= 1) layoutTransition = null;
+}
+
+let activePanel = null; // 'layouts' | 'lightshow' | null
+let currentLayoutIndex = 0;
+let currentLightIndex = 0;
+const layoutKeys = Object.keys(LAYOUT_PRESETS);
+const lightKeys = Object.keys(LIGHTSHOW_PRESETS);
+
+function createLayoutMenu() {
+  const container = document.createElement('div');
+  container.style.cssText = `
+    position:absolute;bottom:52px;left:0;right:0;z-index:19;
+    display:flex;flex-direction:column;align-items:center;pointer-events:none;
+  `;
+
+  const btnStyle = `
+    background:rgba(8,8,10,0.85);border:1px solid rgba(255,255,255,0.08);
+    border-radius:6px;color:#666;font-size:10px;font-family:inherit;
+    padding:5px 12px;cursor:pointer;letter-spacing:0.3px;
+    transition:color 0.15s,border-color 0.15s;text-transform:uppercase;
+    pointer-events:auto;
+  `;
+
+  const itemStyle = `
+    background:transparent;border:1px solid rgba(255,255,255,0.06);
+    border-radius:4px;color:#777;font-size:10px;font-family:inherit;
+    padding:4px 10px;cursor:pointer;letter-spacing:0.2px;
+    transition:color 0.12s,border-color 0.12s,background 0.12s;
+    white-space:nowrap;flex-shrink:0;
+  `;
+
+  // -- Horizontal scrollable strip for layouts --
+  const layoutStrip = document.createElement('div');
+  layoutStrip.style.cssText = `
+    display:none;width:100%;overflow-x:auto;overflow-y:hidden;
+    padding:6px 16px;pointer-events:auto;
+    scrollbar-width:none;-ms-overflow-style:none;
+  `;
+  const layoutInner = document.createElement('div');
+  layoutInner.style.cssText = 'display:flex;gap:5px;justify-content:center;flex-wrap:nowrap;min-width:min-content;margin:0 auto;';
+
+  const layoutBtns = [];
+  for (const [key, { label }] of Object.entries(LAYOUT_PRESETS)) {
+    const btn = document.createElement('button');
+    btn.textContent = label;
+    btn.style.cssText = itemStyle;
+    btn.dataset.key = key;
+    btn.addEventListener('mouseenter', () => { btn.style.color = '#ccc'; btn.style.borderColor = 'rgba(255,255,255,0.15)'; });
+    btn.addEventListener('mouseleave', () => updateLayoutHighlight());
+    btn.addEventListener('click', () => {
+      currentLayoutIndex = layoutKeys.indexOf(key);
+      startLayoutTransition(key);
+      updateLayoutHighlight();
+    });
+    layoutInner.appendChild(btn);
+    layoutBtns.push(btn);
+  }
+  layoutStrip.appendChild(layoutInner);
+
+  function updateLayoutHighlight() {
+    layoutBtns.forEach((b, i) => {
+      const active = i === currentLayoutIndex;
+      b.style.color = active ? '#ccc' : '#777';
+      b.style.borderColor = active ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.06)';
+      b.style.background = active ? 'rgba(255,255,255,0.04)' : 'transparent';
+    });
+  }
+
+  // -- Horizontal scrollable strip for lightshow --
+  const lightStrip = document.createElement('div');
+  lightStrip.style.cssText = `
+    display:none;width:100%;pointer-events:auto;
+    padding:4px 16px 2px;
+  `;
+
+  const lightPresetRow = document.createElement('div');
+  lightPresetRow.style.cssText = `
+    display:flex;gap:5px;justify-content:center;flex-wrap:nowrap;min-width:min-content;
+    margin:0 auto;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;
+  `;
+
+  const lightBtns = [];
+  for (const [key, item] of Object.entries(LIGHTSHOW_PRESETS)) {
+    const btn = document.createElement('button');
+    btn.textContent = item.label;
+    btn.style.cssText = itemStyle;
+    btn.addEventListener('mouseenter', () => { btn.style.color = '#ccc'; btn.style.borderColor = 'rgba(255,255,255,0.15)'; });
+    btn.addEventListener('mouseleave', () => updateLightHighlight());
+    btn.addEventListener('click', () => {
+      currentLightIndex = lightKeys.indexOf(key);
+      lightMode = item.mode;
+      syncLightshow();
+      updateLightHighlight();
+      updateLightToggleStyle();
+    });
+    lightPresetRow.appendChild(btn);
+    lightBtns.push(btn);
+  }
+
+  function updateLightHighlight() {
+    lightBtns.forEach((b, i) => {
+      const active = i === currentLightIndex;
+      b.style.color = active ? '#ccc' : '#777';
+      b.style.borderColor = active ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.06)';
+      b.style.background = active ? 'rgba(255,255,255,0.04)' : 'transparent';
+    });
+  }
+
+  // Sliders row
+  const sliderRow = document.createElement('div');
+  sliderRow.style.cssText = 'display:flex;align-items:center;gap:16px;justify-content:center;padding:4px 16px;';
+
+  const speedLabel = document.createElement('span');
+  speedLabel.textContent = 'Speed';
+  speedLabel.style.cssText = 'color:#555;font-size:9px;text-transform:uppercase;letter-spacing:0.3px;';
+  const speedSlider = document.createElement('input');
+  speedSlider.type = 'range'; speedSlider.min = '0.1'; speedSlider.max = '4'; speedSlider.step = '0.1'; speedSlider.value = '1';
+  speedSlider.style.cssText = 'width:80px;accent-color:#555;height:3px;';
+  speedSlider.addEventListener('input', () => { lightSpeed = parseFloat(speedSlider.value); syncLightshow(); });
+
+  const intLabel = document.createElement('span');
+  intLabel.textContent = 'Intensity';
+  intLabel.style.cssText = 'color:#555;font-size:9px;text-transform:uppercase;letter-spacing:0.3px;';
+  const intSlider = document.createElement('input');
+  intSlider.type = 'range'; intSlider.min = '0'; intSlider.max = '1'; intSlider.step = '0.05'; intSlider.value = '1';
+  intSlider.style.cssText = 'width:80px;accent-color:#555;height:3px;';
+  intSlider.addEventListener('input', () => { lightIntensity = parseFloat(intSlider.value); syncLightshow(); });
+
+  sliderRow.appendChild(speedLabel);
+  sliderRow.appendChild(speedSlider);
+  sliderRow.appendChild(intLabel);
+  sliderRow.appendChild(intSlider);
+
+  lightStrip.appendChild(lightPresetRow);
+  lightStrip.appendChild(sliderRow);
+
+  // -- Current label showing active preset --
+  const currentLabel = document.createElement('div');
+  currentLabel.style.cssText = `
+    color:#555;font-size:9px;letter-spacing:0.5px;text-transform:uppercase;
+    margin-bottom:4px;pointer-events:none;text-align:center;min-height:14px;
+  `;
+
+  function updateCurrentLabel() {
+    const parts = [];
+    if (activePanel === 'layouts') {
+      parts.push(LAYOUT_PRESETS[layoutKeys[currentLayoutIndex]]?.label || '');
+      parts.push('< arrow keys >');
+    } else if (activePanel === 'lightshow') {
+      const lk = lightKeys[currentLightIndex];
+      parts.push(LIGHTSHOW_PRESETS[lk]?.label || '');
+      parts.push('< arrow keys >');
+    }
+    currentLabel.textContent = parts.join('  ');
+  }
+
+  // -- Toggle buttons --
+  const layoutToggle = document.createElement('button');
+  layoutToggle.textContent = 'Layouts';
+  layoutToggle.style.cssText = btnStyle;
+
+  const lightToggle = document.createElement('button');
+  lightToggle.textContent = 'Lightshow';
+  lightToggle.style.cssText = btnStyle + 'margin-left:6px;';
+
+  function updateLightToggleStyle() {
+    if (activePanel === 'lightshow') {
+      lightToggle.style.color = '#aaa';
+      lightToggle.style.borderColor = 'rgba(255,255,255,0.15)';
+    } else if (lightMode > 0) {
+      lightToggle.style.color = '#888';
+      lightToggle.style.borderColor = 'rgba(255,255,255,0.12)';
+    } else {
+      lightToggle.style.color = '#666';
+      lightToggle.style.borderColor = 'rgba(255,255,255,0.08)';
+    }
+  }
+
+  const rotateBtn = document.createElement('button');
+  rotateBtn.textContent = 'Rotate';
+  rotateBtn.style.cssText = btnStyle + 'margin-left:6px;';
+  function updateRotateBtn() {
+    rotateBtn.style.color = autoRotateOn ? '#aaa' : '#555';
+    rotateBtn.style.borderColor = autoRotateOn ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)';
+  }
+  updateRotateBtn();
+  rotateBtn.addEventListener('click', () => {
+    autoRotateOn = !autoRotateOn;
+    syncAutoRotate();
+    updateRotateBtn();
+  });
+  rotateBtn.addEventListener('mouseenter', () => { if (!autoRotateOn) rotateBtn.style.color = '#999'; });
+  rotateBtn.addEventListener('mouseleave', () => updateRotateBtn());
+
+  function openPanel(panel) {
+    if (activePanel === panel) { closeAll(); return; }
+    activePanel = panel;
+    layoutStrip.style.display = panel === 'layouts' ? 'block' : 'none';
+    lightStrip.style.display = panel === 'lightshow' ? 'block' : 'none';
+    layoutToggle.style.color = panel === 'layouts' ? '#aaa' : '#666';
+    layoutToggle.style.borderColor = panel === 'layouts' ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)';
+    updateLightToggleStyle();
+    updateCurrentLabel();
+    if (panel === 'layouts') { updateLayoutHighlight(); scrollToActive(layoutInner, layoutBtns, currentLayoutIndex); }
+    if (panel === 'lightshow') { updateLightHighlight(); scrollToActive(lightPresetRow, lightBtns, currentLightIndex); }
+  }
+
+  function closeAll() {
+    activePanel = null;
+    layoutStrip.style.display = 'none';
+    lightStrip.style.display = 'none';
+    layoutToggle.style.color = '#666';
+    layoutToggle.style.borderColor = 'rgba(255,255,255,0.08)';
+    updateLightToggleStyle();
+    currentLabel.textContent = '';
+  }
+
+  function scrollToActive(container, btns, idx) {
+    const btn = btns[idx];
+    if (btn) btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+  }
+
+  layoutToggle.addEventListener('click', () => openPanel('layouts'));
+  lightToggle.addEventListener('click', () => openPanel('lightshow'));
+  layoutToggle.addEventListener('mouseenter', () => { if (activePanel !== 'layouts') layoutToggle.style.color = '#999'; });
+  layoutToggle.addEventListener('mouseleave', () => { if (activePanel !== 'layouts') layoutToggle.style.color = '#666'; });
+  lightToggle.addEventListener('mouseenter', () => { if (activePanel !== 'lightshow') lightToggle.style.color = '#999'; });
+  lightToggle.addEventListener('mouseleave', () => updateLightToggleStyle());
+
+  // -- Arrow key cycling --
+  window.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT') return;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      if (!activePanel) return;
+      e.preventDefault();
+      const dir = e.key === 'ArrowRight' ? 1 : -1;
+      if (activePanel === 'layouts') {
+        currentLayoutIndex = (currentLayoutIndex + dir + layoutKeys.length) % layoutKeys.length;
+        startLayoutTransition(layoutKeys[currentLayoutIndex]);
+        updateLayoutHighlight();
+        updateCurrentLabel();
+        scrollToActive(layoutInner, layoutBtns, currentLayoutIndex);
+      } else if (activePanel === 'lightshow') {
+        currentLightIndex = (currentLightIndex + dir + lightKeys.length) % lightKeys.length;
+        lightMode = LIGHTSHOW_PRESETS[lightKeys[currentLightIndex]].mode;
+        syncLightshow();
+        updateLightHighlight();
+        updateLightToggleStyle();
+        updateCurrentLabel();
+        scrollToActive(lightPresetRow, lightBtns, currentLightIndex);
+      }
+    }
+  });
+
+  // -- Assemble --
+  const btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;align-items:center;justify-content:center;pointer-events:auto;';
+  btnRow.appendChild(layoutToggle);
+  btnRow.appendChild(lightToggle);
+  btnRow.appendChild(rotateBtn);
+
+  container.appendChild(layoutStrip);
+  container.appendChild(lightStrip);
+  container.appendChild(currentLabel);
+  container.appendChild(btnRow);
+  appEl.appendChild(container);
+}
+
+// ============ SEARCH BAR (minimal, monochrome) ============
+function createSearchBar(tesseract) {
+  const shell = document.createElement('div');
+  shell.style.cssText = 'position:absolute;bottom:18px;left:50%;transform:translateX(-50%);z-index:18;width:min(420px, calc(100% - 32px));';
+
+  const input = document.createElement('input');
+  input.id = 'hive-search-input';
+  input.type = 'text';
+  input.placeholder = 'Search...';
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  input.style.cssText = `
+    width:100%;padding:10px 14px;
+    background:rgba(8,8,10,0.85);border:1px solid rgba(255,255,255,0.08);
+    border-radius:8px;color:#999;font-size:13px;font-family:inherit;
+    outline:none;letter-spacing:0.2px;
+    transition:border-color 0.15s,color 0.15s;
+  `;
+
+  const dropdown = document.createElement('div');
+  dropdown.style.cssText = `
+    position:absolute;bottom:100%;left:0;right:0;margin-bottom:4px;
+    background:rgba(8,8,10,0.92);border:1px solid rgba(255,255,255,0.06);
+    border-radius:8px;overflow:hidden;display:none;
+    max-height:280px;overflow-y:auto;
+  `;
+
+  shell.appendChild(dropdown);
+  shell.appendChild(input);
+  appEl.appendChild(shell);
+
+  input.addEventListener('focus', () => { input.style.borderColor = 'rgba(255,255,255,0.15)'; input.style.color = '#ccc'; });
+  input.addEventListener('blur', () => {
+    setTimeout(() => { dropdown.style.display = 'none'; }, 150);
+    input.style.borderColor = 'rgba(255,255,255,0.08)'; input.style.color = '#999';
+  });
+
+  input.addEventListener('input', () => {
+    const q = input.value.trim();
+    if (q.length < 2) { dropdown.style.display = 'none'; return; }
+    const hits = tesseract.search(q).slice(0, 8);
+    if (hits.length === 0) { dropdown.style.display = 'none'; return; }
+
+    dropdown.innerHTML = hits.map((h, i) =>
+      `<div data-idx="${i}" style="padding:7px 12px;cursor:pointer;font-size:12px;color:#888;border-bottom:1px solid rgba(255,255,255,0.03);transition:background 0.1s,color 0.1s;">
+        <div style="color:#bbb;font-size:12px;">${h.title || h.id}</div>
+        <div style="font-size:9px;color:#444;margin-top:2px;">${h.folder || ''}</div>
+      </div>`
+    ).join('');
+    dropdown.style.display = 'block';
+
+    // Highlight on hover
+    dropdown.querySelectorAll('[data-idx]').forEach(el => {
+      el.addEventListener('mouseenter', () => { el.style.background = 'rgba(255,255,255,0.04)'; el.style.color = '#ccc'; });
+      el.addEventListener('mouseleave', () => { el.style.background = 'transparent'; el.style.color = '#888'; });
+      el.addEventListener('click', () => {
+        selectNode(hits[parseInt(el.dataset.idx)].id);
+        input.value = '';
+        dropdown.style.display = 'none';
+        input.blur();
+      });
+    });
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const q = input.value.trim();
+      if (!q) return;
+      const hits = tesseract.search(q);
+      if (hits.length > 0) {
+        selectNode(hits[0].id);
+        input.value = '';
+        dropdown.style.display = 'none';
+        input.blur();
+      }
+    }
+    if (e.key === 'Escape') {
+      input.value = '';
+      dropdown.style.display = 'none';
+      input.blur();
+    }
+  });
+}
+
 // ============ INIT ============
 async function init() {
   updateSize();
-  createControls();
-  createLegend();
 
   const res = await fetch('/graph.json');
   const data = await res.json();
   tesseract = new Tesseract(data);
   tesseract.layoutGraph();
 
-  const skybox = buildSkybox(scene);
+  // Save original force-layout positions for "Galaxy" preset
+  for (const n of tesseract.nodes) {
+    n._origX = n.x;
+    n._origY = n.y;
+    n._origZ = n.z;
+  }
+
+  skyboxRef = buildSkybox(scene);
   edgeHandle = buildEdges(scene, tesseract);
   nodeHandle = buildNodes(scene, tesseract);
+
+  // Apply pixel ratio to point shaders for DPI-correct rendering
+  const dpr = window.devicePixelRatio;
+  if (nodeHandle?.material?.uniforms?.uPixelRatio) {
+    nodeHandle.material.uniforms.uPixelRatio.value = dpr;
+  }
+  if (skyboxRef?.starMat?.uniforms?.uPixelRatio) {
+    skyboxRef.starMat.uniforms.uPixelRatio.value = dpr;
+  }
 
   // Reader
   initReader();
@@ -513,15 +1463,9 @@ async function init() {
   // Sidebar
   sidebarApi = createSidebar(tesseract, selectNode, onSelectCallbacks, handleOpenReader, handleSearchHighlight);
 
-  // Direct retrieval panel
-  retrieverPanel = createRetrieverPanel({
-    mount: document.getElementById('retriever-root'),
-    onSubmit: submitRetrieverQuery,
-    onCandidateSelect: (candidate) => {
-      clarificationContext = null;
-      applyResolvedRetrieverResult(candidate);
-    },
-  });
+  // Minimal search bar (Cmd/Ctrl+K) + layout menu
+  createSearchBar(tesseract);
+  createLayoutMenu();
 
   // Idle drift reset on interaction
   for (const evt of ['pointerdown', 'pointermove', 'wheel', 'keydown']) {
@@ -545,7 +1489,8 @@ async function init() {
     }
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
       e.preventDefault();
-      retrieverPanel?.focus();
+      const searchInput = document.getElementById('hive-search-input');
+      if (searchInput) { searchInput.focus(); searchInput.select(); }
       return;
     }
     if (e.key === '/' && e.target.tagName !== 'INPUT') {
@@ -558,47 +1503,29 @@ async function init() {
   window.addEventListener('resize', updateSize);
   new ResizeObserver(updateSize).observe(appEl);
 
-  // Render loop
+  // Render loop -- all animation is GPU-driven via uTime uniforms
+  let lastTime = performance.now();
   function animate() {
     requestAnimationFrame(animate);
 
-    // Physics disabled - static layout
+    const now = performance.now();
+    const dt = (now - lastTime) / 1000;
+    lastTime = now;
 
     const elapsed = clock.getElapsedTime();
 
-    // Shader time updates
+    // Push time to all shaders (GPU handles pulse, dust, twinkle, flow)
     if (edgeHandle?.material) edgeHandle.material.uniforms.uTime.value = elapsed;
-    if (skybox?.starMat) skybox.starMat.uniforms.uTime.value = elapsed;
+    if (skyboxRef?.starMat) skyboxRef.starMat.uniforms.uTime.value = elapsed;
+    if (skyboxRef?.dustMat) skyboxRef.dustMat.uniforms.uTime.value = elapsed;
+    if (nodeHandle?.material) nodeHandle.material.uniforms.uTime.value = elapsed;
 
-    // Selection pulse
-    if (selectedNode && edgeHandle && nodeHandle) {
-      updateSelectionPulse(elapsed, edgeHandle, nodeHandle, selectedNode, tesseract);
-    }
-
-    // Vortex dust currents (skip during flights)
-    if (skybox?.dustMesh && !flyState) {
-      const dp = skybox.dustMesh.userData.posAttr;
-      const t = elapsed * 0.3;
-      for (let i = 0; i < dp.count; i++) {
-        const x = dp.array[i * 3];
-        const y = dp.array[i * 3 + 1];
-        const z = dp.array[i * 3 + 2];
-        // Curl noise-ish vortex flow
-        dp.array[i * 3] += Math.sin(z * 0.0008 + t) * 0.12;
-        dp.array[i * 3 + 1] += Math.sin(x * 0.0006 + z * 0.0004 + t * 0.7) * 0.06;
-        dp.array[i * 3 + 2] += Math.cos(x * 0.0008 + t) * 0.12;
-        // Wrap around
-        for (let j = 0; j < 3; j++) {
-          if (dp.array[i * 3 + j] > 5000) dp.array[i * 3 + j] = -5000;
-          if (dp.array[i * 3 + j] < -5000) dp.array[i * 3 + j] = 5000;
-        }
-      }
-      dp.needsUpdate = true;
-    }
+    // Layout transition (smooth interpolation between presets)
+    if (layoutTransition) updateLayoutTransition(dt);
 
     updateCamera();
     updateSelectedTitle();
-    controls.update(); // autoRotate handled internally by OrbitControls
+    controls.update();
     renderer.render(scene, camera);
   }
   animate();

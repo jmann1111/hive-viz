@@ -86,6 +86,10 @@ export function buildEdges(scene, tesseract) {
     }
   }
 
+  // Edge selection state: 0=normal, 1=connected to selected node
+  const edgeSelectStates = new Float32Array(vertexCount);
+  const edgeSelectAttr = new THREE.BufferAttribute(edgeSelectStates, 1);
+
   const geometry = new THREE.BufferGeometry();
   const posAttr = new THREE.BufferAttribute(positions, 3);
   const colorAttr = new THREE.BufferAttribute(colors, 3);
@@ -93,35 +97,159 @@ export function buildEdges(scene, tesseract) {
   geometry.setAttribute('position', posAttr);
   geometry.setAttribute('color', colorAttr);
   geometry.setAttribute('alpha', alphaAttr);
+  geometry.setAttribute('edgeSelect', edgeSelectAttr);
 
   const material = new THREE.ShaderMaterial({
     uniforms: {
       uTime: { value: 0.0 },
+      uLightMode: { value: 0.0 },
+      uLightSpeed: { value: 1.0 },
+      uLightIntensity: { value: 1.0 },
     },
     vertexShader: `
       attribute float alpha;
       attribute vec3 color;
+      attribute float edgeSelect;
       varying float vAlpha;
       varying vec3 vColor;
       varying float vDist;
+      varying float vSelected;
+      varying vec3 vPos;
       void main() {
-        vAlpha = alpha;
+        vSelected = edgeSelect;
         vColor = color;
+        vAlpha = alpha;
+        vPos = position;
         vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
-        vDist = length(position) * 0.002; // for flow pattern
+        vDist = length(position) * 0.002;
         gl_Position = projectionMatrix * mvPos;
       }
     `,
     fragmentShader: `
       uniform float uTime;
+      uniform float uLightMode;
+      uniform float uLightSpeed;
+      uniform float uLightIntensity;
       varying float vAlpha;
       varying vec3 vColor;
       varying float vDist;
+      varying float vSelected;
+      varying vec3 vPos;
+
+      vec3 hsv2rgb(vec3 c) {
+        vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0);
+        vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+        return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+      }
+
       void main() {
-        // Subtle flowing dash pattern
         float flow = sin(vDist * 8.0 - uTime * 1.5) * 0.5 + 0.5;
         float shimmer = 0.85 + 0.15 * flow;
-        gl_FragColor = vec4(vColor * shimmer, vAlpha * shimmer);
+        vec3 c = vColor;
+        float a = vAlpha;
+        if (vSelected > 0.5) {
+          float wave = sin(uTime * 2.5);
+          float bright = 1.5 + 0.5 * wave;
+          c = min(vec3(1.0), vColor * bright + 0.15);
+          a = 0.6 + 0.25 * wave;
+        }
+
+        // Edge lightshow - mirror the node lightshow on connections
+        float mode = uLightMode;
+        float spd = uLightSpeed;
+        float inten = uLightIntensity;
+        float t = uTime * spd;
+        float dist = length(vPos);
+        float normDist = dist / 400.0;
+
+        if (mode > 0.5 && mode < 1.5) {
+          float hue = fract(normDist * 0.5 - t * 0.3);
+          c = mix(c, hsv2rgb(vec3(hue, 0.9, 1.0)), inten * 0.7);
+          a = mix(a, 0.6, inten * 0.5);
+        } else if (mode > 1.5 && mode < 2.5) {
+          float breath = 0.5 + 0.5 * sin(t * 1.5);
+          a *= (0.3 + breath * 0.7 * inten + (1.0 - inten));
+        } else if (mode > 2.5 && mode < 3.5) {
+          float ring = sin(normDist * 12.0 - t * 4.0);
+          float pulse = smoothstep(0.0, 1.0, ring);
+          c = mix(c * 0.3, c * 2.0, pulse * inten);
+          a = mix(a * 0.3, a * 1.5, pulse * inten);
+        } else if (mode > 3.5 && mode < 4.5) {
+          float flicker = sin(vDist * 500.0 + t * 3.0) * sin(vDist * 1200.0 + t * 2.3);
+          float bright = 0.4 + 0.6 * (0.5 + 0.5 * flicker);
+          a *= mix(1.0, bright * 1.5, inten);
+        } else if (mode > 4.5 && mode < 5.5) {
+          float h = (vPos.y + 300.0) / 600.0;
+          vec3 fire = mix(vec3(1.0, 0.1, 0.0), vec3(1.0, 0.9, 0.3), clamp(h, 0.0, 1.0));
+          c = mix(c, fire, inten * 0.7);
+          a = mix(a, 0.5, inten * 0.4);
+        } else if (mode > 5.5 && mode < 6.5) {
+          float band = sin(vPos.x * 0.01 + t * 0.8) * cos(vPos.z * 0.01 + t * 0.5);
+          float hue = fract(0.45 + band * 0.15 + vPos.y * 0.001);
+          vec3 aurora = hsv2rgb(vec3(hue, 0.7, 0.9));
+          c = mix(c, aurora, inten * 0.6);
+          a = mix(a, 0.5, inten * 0.3);
+        } else if (mode > 6.5 && mode < 7.5) {
+          float col = floor(vPos.x * 0.05 + vPos.z * 0.05);
+          float rain = fract(col * 0.37 - t * 0.5 + vPos.y * 0.003);
+          float bright = smoothstep(0.0, 0.15, rain) * smoothstep(0.4, 0.15, rain);
+          c = mix(c * 0.15, vec3(0.1, 1.0, 0.3), bright * inten);
+          a = mix(a * 0.2, 0.6, bright * inten);
+        } else if (mode > 7.5 && mode < 8.5) {
+          float beat = mod(t * 1.2, 2.0);
+          float delay = normDist * 0.3;
+          float dp1 = exp(-pow(beat - 0.3 - delay, 2.0) * 80.0);
+          float dp2 = exp(-pow(beat - 0.55 - delay, 2.0) * 120.0);
+          float dPulse = dp1 + dp2 * 0.7;
+          c = mix(c * 0.3, vec3(1.0, 0.2, 0.3) * 1.5, dPulse * inten);
+          a = mix(a * 0.2, 0.7, dPulse * inten);
+        } else if (mode > 8.5 && mode < 9.5) {
+          float wave1 = sin(vPos.x * 0.015 + t * 1.2) * cos(vPos.z * 0.012 + t * 0.8);
+          float w = 0.5 + 0.5 * wave1;
+          vec3 ocean = mix(vec3(0.0, 0.05, 0.2), vec3(0.1, 0.5, 0.9), w);
+          c = mix(c, ocean, inten * 0.7);
+          a = mix(a, 0.4, inten * 0.3);
+        } else if (mode > 9.5 && mode < 10.5) {
+          float cluster = floor(vDist * 100.0);
+          float flash = step(0.97, fract(sin(cluster * 91.3 + floor(t * 3.0) * 17.7) * 43758.5453));
+          float fade = exp(-fract(t * 3.0) * 4.0);
+          c = mix(c, vec3(0.8, 0.85, 1.0) * 2.0, flash * fade * inten);
+          a = mix(a, 0.8, flash * fade * inten);
+        } else if (mode > 10.5 && mode < 11.5) {
+          float blob = sin(vPos.x * 0.008 + t * 0.4) * sin(vPos.y * 0.008 + t * 0.3) * sin(vPos.z * 0.008 + t * 0.5);
+          float heat = 0.5 + 0.5 * blob;
+          vec3 lava = mix(vec3(0.6, 0.0, 0.0), vec3(1.0, 0.7, 0.0), heat);
+          c = mix(c, lava, inten * heat * 0.7);
+          a = mix(a, 0.5, inten * heat * 0.3);
+        } else if (mode > 11.5 && mode < 12.5) {
+          float sparkle = pow(0.5 + 0.5 * sin(vDist * 800.0 + t * 4.0), 8.0);
+          vec3 ice = mix(vec3(0.4, 0.6, 0.9), vec3(0.9, 0.95, 1.0), sparkle);
+          c = mix(c, ice, inten * 0.6);
+          a = mix(a, 0.4, inten * 0.3);
+        } else if (mode > 12.5 && mode < 13.5) {
+          float wavefront = mod(t * 2.0, 3.0);
+          float d2 = abs(normDist - wavefront * 0.5);
+          float ring2 = exp(-d2 * d2 * 20.0);
+          c = mix(c * 0.3, c * 2.0, ring2 * inten);
+          a = mix(a * 0.3, 0.7, ring2 * inten);
+        } else if (mode > 13.5 && mode < 14.5) {
+          float flash2 = step(0.5, fract(t * 2.0));
+          a *= mix(0.1, 1.0, flash2 * inten + (1.0 - inten));
+        } else if (mode > 14.5 && mode < 15.5) {
+          float angle = atan(vPos.z, vPos.x);
+          float sweep = mod(t * 1.5, 6.28318);
+          float diff = abs(mod(angle - sweep + 3.14159, 6.28318) - 3.14159);
+          float tail = exp(-diff * 3.0);
+          c = mix(c * 0.3, vec3(1.0, 0.95, 0.8) * 1.5, tail * inten);
+          a = mix(a * 0.2, 0.6, tail * inten);
+        } else if (mode > 15.5 && mode < 16.5) {
+          float angle2 = atan(vPos.z, vPos.x);
+          float hue2 = fract((angle2 + 3.14159) / 6.28318 + t * 0.2);
+          c = mix(c, hsv2rgb(vec3(hue2, 0.8, 1.0)), inten * 0.6);
+          a = mix(a, 0.5, inten * 0.3);
+        }
+
+        gl_FragColor = vec4(c * shimmer, a * shimmer);
       }
     `,
     transparent: true,
@@ -138,6 +266,7 @@ export function buildEdges(scene, tesseract) {
     posAttr,
     colorAttr,
     alphaAttr,
+    edgeSelectAttr,
     defaultColors,
     defaultAlphas,
     edgeIndex,
@@ -201,27 +330,185 @@ export function buildNodes(scene, tesseract) {
   geometry.setAttribute('color', colorAttr);
   geometry.setAttribute('size', sizeAttr);
 
+  // selectState: 0=normal, 1=selected, 2=neighbor. Set once on click, pulse driven by uTime.
+  const selectStates = new Float32Array(nodes.length);
+  const selectAttr = new THREE.BufferAttribute(selectStates, 1);
+  geometry.setAttribute('selectState', selectAttr);
+
   const material = new THREE.ShaderMaterial({
+    uniforms: {
+      uPixelRatio: { value: 1.0 },
+      uTime: { value: 0.0 },
+      uLightMode: { value: 0.0 },
+      uLightSpeed: { value: 1.0 },
+      uLightIntensity: { value: 1.0 },
+    },
     vertexShader: `
+      uniform float uPixelRatio;
+      uniform float uTime;
+      uniform float uLightMode;
+      uniform float uLightSpeed;
+      uniform float uLightIntensity;
       attribute float size;
       attribute vec3 color;
+      attribute float selectState;
       varying vec3 vColor;
+
+      vec3 hsv2rgb(vec3 c) {
+        vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0);
+        vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+        return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+      }
+
       void main() {
-        vColor = color;
+        vec3 c = color;
+        float s = size;
+
+        if (selectState > 0.5) {
+          float wave = sin(uTime * 2.5);
+          if (selectState > 1.5) {
+            float phase = float(gl_VertexID) * 0.3;
+            float nBright = 1.3 + 0.3 * sin(uTime * 2.0 + phase);
+            c = min(vec3(1.0), c * nBright + 0.08);
+            s *= 1.3 + 0.2 * sin(uTime * 2.0 + phase);
+          } else {
+            float bright = 1.6 + 0.6 * wave;
+            c = min(vec3(1.0), c * bright + 0.25);
+            s *= 2.0 + 0.5 * wave;
+          }
+        }
+
+        // Lightshow modes (only when uLightMode > 0)
+        float mode = uLightMode;
+        float spd = uLightSpeed;
+        float inten = uLightIntensity;
+        float t = uTime * spd;
+        float vid = float(gl_VertexID);
+        vec3 pos = position;
+        float dist = length(pos);
+        float normDist = dist / 400.0;
+
+        if (mode > 0.5 && mode < 1.5) {
+          // 1: Spectrum Wave - rainbow wave radiating outward
+          float hue = fract(normDist * 0.5 - t * 0.3);
+          c = mix(c, hsv2rgb(vec3(hue, 0.9, 1.0)), inten);
+        } else if (mode > 1.5 && mode < 2.5) {
+          // 2: Breathe - all nodes pulse brightness together
+          float breath = 0.5 + 0.5 * sin(t * 1.5);
+          c = c * (0.3 + breath * 0.7 * inten + (1.0 - inten));
+          s *= 0.8 + breath * 0.4;
+        } else if (mode > 2.5 && mode < 3.5) {
+          // 3: Ripple - concentric rings pulse outward from center
+          float ring = sin(normDist * 12.0 - t * 4.0);
+          float pulse = smoothstep(0.0, 1.0, ring);
+          c = mix(c * 0.3, c * 2.0, pulse * inten);
+          s *= 0.8 + pulse * 0.5;
+        } else if (mode > 3.5 && mode < 4.5) {
+          // 4: Starlight - random twinkle per node
+          float flicker = sin(vid * 127.1 + t * 3.0) * sin(vid * 311.7 + t * 2.3);
+          float bright = 0.4 + 0.6 * (0.5 + 0.5 * flicker);
+          c = mix(c, c * bright * 2.0, inten);
+          s *= 0.7 + bright * 0.6;
+        } else if (mode > 4.5 && mode < 5.5) {
+          // 5: Fire - warm gradient from bottom (red) to top (yellow-white)
+          float h = (pos.y + 300.0) / 600.0;
+          float flicker = 0.8 + 0.2 * sin(vid * 43.7 + t * 5.0);
+          vec3 fire = mix(vec3(1.0, 0.1, 0.0), vec3(1.0, 0.9, 0.3), clamp(h, 0.0, 1.0)) * flicker;
+          c = mix(c, fire, inten);
+        } else if (mode > 5.5 && mode < 6.5) {
+          // 6: Aurora - flowing vertical bands of green/teal/purple
+          float band = sin(pos.x * 0.01 + t * 0.8) * cos(pos.z * 0.01 + t * 0.5);
+          float hue = fract(0.45 + band * 0.15 + pos.y * 0.001);
+          vec3 aurora = hsv2rgb(vec3(hue, 0.7, 0.9 + 0.1 * band));
+          c = mix(c, aurora, inten * (0.5 + 0.5 * band));
+        } else if (mode > 6.5 && mode < 7.5) {
+          // 7: Matrix Rain - green cascade downward
+          float col = floor(pos.x * 0.05 + pos.z * 0.05);
+          float rain = fract(col * 0.37 - t * 0.5 + pos.y * 0.003);
+          float bright = smoothstep(0.0, 0.15, rain) * smoothstep(0.4, 0.15, rain);
+          c = mix(c * 0.15, vec3(0.1, 1.0, 0.3) * 1.5, bright * inten);
+          s *= 0.6 + bright * 0.8;
+        } else if (mode > 7.5 && mode < 8.5) {
+          // 8: Heartbeat - sharp double-pulse like a heartbeat monitor
+          float beat = mod(t * 1.2, 2.0);
+          float p1 = exp(-pow(beat - 0.3, 2.0) * 80.0);
+          float p2 = exp(-pow(beat - 0.55, 2.0) * 120.0);
+          float pulse = p1 + p2 * 0.7;
+          float delay = normDist * 0.3;
+          float dp1 = exp(-pow(beat - 0.3 - delay, 2.0) * 80.0);
+          float dp2 = exp(-pow(beat - 0.55 - delay, 2.0) * 120.0);
+          float dPulse = dp1 + dp2 * 0.7;
+          c = mix(c * 0.3, vec3(1.0, 0.2, 0.3) * 1.8, dPulse * inten);
+          s *= 0.7 + dPulse * 0.8;
+        } else if (mode > 8.5 && mode < 9.5) {
+          // 9: Ocean - deep blue waves
+          float wave1 = sin(pos.x * 0.015 + t * 1.2) * cos(pos.z * 0.012 + t * 0.8);
+          float wave2 = sin(pos.x * 0.008 - t * 0.6) * sin(pos.z * 0.01 + t * 1.0);
+          float w = 0.5 + 0.5 * (wave1 + wave2 * 0.5);
+          vec3 ocean = mix(vec3(0.0, 0.05, 0.2), vec3(0.1, 0.5, 0.9), w);
+          c = mix(c, ocean, inten);
+        } else if (mode > 9.5 && mode < 10.5) {
+          // 10: Lightning - random bright flashes across clusters
+          float cluster = floor(vid / 20.0);
+          float flash = step(0.97, fract(sin(cluster * 91.3 + floor(t * 3.0) * 17.7) * 43758.5453));
+          float fade = exp(-fract(t * 3.0) * 4.0);
+          c = mix(c, vec3(0.8, 0.85, 1.0) * 2.5, flash * fade * inten);
+          s *= 1.0 + flash * fade * 1.5;
+        } else if (mode > 10.5 && mode < 11.5) {
+          // 11: Lava - slow pulsing red/orange/yellow blobs
+          float blob = sin(pos.x * 0.008 + t * 0.4) * sin(pos.y * 0.008 + t * 0.3) * sin(pos.z * 0.008 + t * 0.5);
+          float heat = 0.5 + 0.5 * blob;
+          vec3 lava = mix(vec3(0.6, 0.0, 0.0), vec3(1.0, 0.7, 0.0), heat);
+          c = mix(c, lava, inten * heat);
+        } else if (mode > 11.5 && mode < 12.5) {
+          // 12: Frozen - icy blue sparkle
+          float sparkle = pow(0.5 + 0.5 * sin(vid * 173.3 + t * 4.0), 8.0);
+          vec3 ice = mix(vec3(0.4, 0.6, 0.9), vec3(0.9, 0.95, 1.0), sparkle);
+          c = mix(c, ice, inten);
+          s *= 0.8 + sparkle * 0.5;
+        } else if (mode > 12.5 && mode < 13.5) {
+          // 13: Reactive Pulse - nodes near origin pulse, ripple outward
+          float wavefront = mod(t * 2.0, 3.0);
+          float d = abs(normDist - wavefront * 0.5);
+          float ring = exp(-d * d * 20.0);
+          c = mix(c * 0.4, c * 2.5, ring * inten);
+          s *= 0.7 + ring * 0.8;
+        } else if (mode > 13.5 && mode < 14.5) {
+          // 14: Strobe - sharp on/off flash
+          float flash = step(0.5, fract(t * 2.0));
+          c = mix(c * 0.1, c * 1.8, flash * inten + (1.0 - inten));
+        } else if (mode > 14.5 && mode < 15.5) {
+          // 15: Comet - bright point sweeps around the shape
+          float angle = atan(pos.z, pos.x);
+          float sweep = mod(t * 1.5, 6.28318);
+          float diff = abs(mod(angle - sweep + 3.14159, 6.28318) - 3.14159);
+          float tail = exp(-diff * 3.0);
+          c = mix(c * 0.3, vec3(1.0, 0.95, 0.8) * 2.0, tail * inten);
+          s *= 0.6 + tail * 1.0;
+        } else if (mode > 15.5 && mode < 16.5) {
+          // 16: Galaxy Spin - color rotates around center
+          float angle = atan(pos.z, pos.x);
+          float hue = fract((angle + 3.14159) / 6.28318 + t * 0.2);
+          c = mix(c, hsv2rgb(vec3(hue, 0.8, 1.0)), inten * 0.8);
+        }
+
+        vColor = c;
         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = size * (600.0 / -mvPosition.z);
-        gl_PointSize = clamp(gl_PointSize, 1.0, 40.0);
+        gl_PointSize = s * (300.0 / -mvPosition.z) * uPixelRatio;
+        gl_PointSize = clamp(gl_PointSize, 1.0 * uPixelRatio, 18.0 * uPixelRatio);
         gl_Position = projectionMatrix * mvPosition;
       }
     `,
     fragmentShader: `
       varying vec3 vColor;
       void main() {
-        // Soft circle
         float d = length(gl_PointCoord - vec2(0.5));
         if (d > 0.5) discard;
-        float a = 1.0 - smoothstep(0.3, 0.5, d);
-        gl_FragColor = vec4(vColor, a * 0.9);
+        // Bright core, tight falloff - christmas light look
+        float core = exp(-d * d * 28.0);
+        float glow = exp(-d * d * 8.0) * 0.3;
+        float a = core + glow;
+        gl_FragColor = vec4(vColor * (1.0 + core * 0.5), a);
       }
     `,
     transparent: true,
@@ -234,9 +521,11 @@ export function buildNodes(scene, tesseract) {
 
   return {
     mesh,
+    material,
     posAttr,
     colorAttr,
     sizeAttr,
+    selectAttr,
     defaultSizes,
     defaultColors,
     nodeIdByIndex,
@@ -300,9 +589,10 @@ export function buildSkybox(scene) {
   starGeo.setAttribute('phase', new THREE.BufferAttribute(starPhases, 1));
 
   const starMat = new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0.0 } },
+    uniforms: { uTime: { value: 0.0 }, uPixelRatio: { value: 1.0 } },
     vertexShader: `
       uniform float uTime;
+      uniform float uPixelRatio;
       attribute float size;
       attribute float phase;
       attribute vec3 color;
@@ -313,8 +603,8 @@ export function buildSkybox(scene) {
         // Each star twinkles at its own speed
         vTwinkle = 0.7 + 0.3 * sin(uTime * (0.5 + phase * 0.03) + phase);
         vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = size * (200.0 / -mvPos.z);
-        gl_PointSize = clamp(gl_PointSize, 0.5, 4.0);
+        gl_PointSize = size * (200.0 / -mvPos.z) * uPixelRatio;
+        gl_PointSize = clamp(gl_PointSize, 0.5 * uPixelRatio, 4.0 * uPixelRatio);
         gl_Position = projectionMatrix * mvPos;
       }
     `,
@@ -382,42 +672,62 @@ export function buildSkybox(scene) {
     scene.add(mesh);
   }
 
-  // === Dust Particles (drifting for parallax) ===
+  // === Dust Particles (GPU-driven vortex, zero CPU per frame) ===
   const DUST_COUNT = 1500;
   const dustPositions = new Float32Array(DUST_COUNT * 3);
-  const dustVelocities = new Float32Array(DUST_COUNT * 3);
+  const dustSeeds = new Float32Array(DUST_COUNT); // per-particle random seed
 
   for (let i = 0; i < DUST_COUNT; i++) {
     dustPositions[i * 3] = (Math.random() - 0.5) * 10000;
     dustPositions[i * 3 + 1] = (Math.random() - 0.5) * 10000;
     dustPositions[i * 3 + 2] = (Math.random() - 0.5) * 10000;
-    dustVelocities[i * 3] = (Math.random() - 0.5) * 0.15;
-    dustVelocities[i * 3 + 1] = (Math.random() - 0.5) * 0.1;
-    dustVelocities[i * 3 + 2] = (Math.random() - 0.5) * 0.15;
+    dustSeeds[i] = Math.random() * 100.0;
   }
 
   const dustGeo = new THREE.BufferGeometry();
-  const dustPosAttr = new THREE.BufferAttribute(dustPositions, 3);
-  dustGeo.setAttribute('position', dustPosAttr);
+  dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
+  dustGeo.setAttribute('seed', new THREE.BufferAttribute(dustSeeds, 1));
 
-  const dustMat = new THREE.PointsMaterial({
-    color: 0x334466,
-    size: 2,
+  const dustMat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0.0 } },
+    vertexShader: `
+      uniform float uTime;
+      attribute float seed;
+      varying float vAlpha;
+      void main() {
+        // Vortex drift in the shader - no CPU needed
+        float t = uTime * 0.3;
+        vec3 p = position;
+        p.x += sin(position.z * 0.0008 + t + seed) * uTime * 0.04;
+        p.y += sin(position.x * 0.0006 + position.z * 0.0004 + t * 0.7 + seed) * uTime * 0.02;
+        p.z += cos(position.x * 0.0008 + t + seed) * uTime * 0.04;
+        // Wrap: use mod to keep in bounds (GPU-side)
+        p = mod(p + 5000.0, 10000.0) - 5000.0;
+        vec4 mvPos = modelViewMatrix * vec4(p, 1.0);
+        gl_PointSize = 2.0 * (300.0 / -mvPos.z);
+        gl_PointSize = clamp(gl_PointSize, 0.5, 3.0);
+        vAlpha = 0.15 + 0.05 * sin(t * 2.0 + seed);
+        gl_Position = projectionMatrix * mvPos;
+      }
+    `,
+    fragmentShader: `
+      varying float vAlpha;
+      void main() {
+        float d = length(gl_PointCoord - vec2(0.5));
+        if (d > 0.5) discard;
+        float a = 1.0 - smoothstep(0.0, 0.5, d);
+        gl_FragColor = vec4(0.2, 0.27, 0.4, a * vAlpha);
+      }
+    `,
     transparent: true,
-    opacity: 0.15,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
-    sizeAttenuation: true,
   });
 
   const dustMesh = new THREE.Points(dustGeo, dustMat);
   scene.add(dustMesh);
 
-  // Store for animation
-  dustMesh.userData.velocities = dustVelocities;
-  dustMesh.userData.posAttr = dustPosAttr;
-
-  return { dustMesh, starMat };
+  return { dustMesh, dustMat, starMat };
 }
 
 // Update positions from simulation (call each frame when sim is active)
@@ -450,123 +760,63 @@ export function syncPositions(tesseract, edgeHandle, nodeHandle) {
   edgeHandle.posAttr.needsUpdate = true;
 }
 
-// Highlight edges connected to a node - keep galaxy visible, brighten selection
+// Highlight selection: set selectState attributes once (GPU does the pulse)
 export function highlightSelection(edgeHandle, nodeHandle, nodeId, tesseract) {
   const connectedEdges = edgeHandle.edgeIndex.get(nodeId);
   if (!connectedEdges) return;
-
   const neighbors = new Set(tesseract.adjacency.get(nodeId) || []);
 
-  // Slightly dim unselected edges (70% of default) so selection pops
+  // Dim unselected edges, mark connected ones
   for (let i = 0; i < edgeHandle.vertexCount; i++) {
     edgeHandle.colorAttr.array[i * 3] = edgeHandle.defaultColors[i * 3] * 0.7;
     edgeHandle.colorAttr.array[i * 3 + 1] = edgeHandle.defaultColors[i * 3 + 1] * 0.7;
     edgeHandle.colorAttr.array[i * 3 + 2] = edgeHandle.defaultColors[i * 3 + 2] * 0.7;
     edgeHandle.alphaAttr.array[i] = edgeHandle.defaultAlphas[i] * 0.7;
+    edgeHandle.edgeSelectAttr.array[i] = 0.0;
   }
 
-  // Brighten selected edges: amplify their own base color + white shift
   for (const ei of connectedEdges) {
     const vi = ei * 2;
-    edgeHandle.alphaAttr.array[vi] = 0.85;
-    edgeHandle.alphaAttr.array[vi + 1] = 0.85;
-    // Take default color and brighten it (add 40% white)
+    // Restore default colors for connected edges (shader will pulse them)
     for (let v = vi; v <= vi + 1; v++) {
       edgeHandle.colorAttr.array[v * 3] = Math.min(1, edgeHandle.defaultColors[v * 3] * 1.8 + 0.2);
       edgeHandle.colorAttr.array[v * 3 + 1] = Math.min(1, edgeHandle.defaultColors[v * 3 + 1] * 1.8 + 0.2);
       edgeHandle.colorAttr.array[v * 3 + 2] = Math.min(1, edgeHandle.defaultColors[v * 3 + 2] * 1.8 + 0.2);
+      edgeHandle.edgeSelectAttr.array[v] = 1.0;
     }
+    edgeHandle.alphaAttr.array[vi] = 0.85;
+    edgeHandle.alphaAttr.array[vi + 1] = 0.85;
   }
 
-  edgeHandle.alphaAttr.needsUpdate = true;
   edgeHandle.colorAttr.needsUpdate = true;
+  edgeHandle.alphaAttr.needsUpdate = true;
+  edgeHandle.edgeSelectAttr.needsUpdate = true;
 
-  // Boost selected + neighbors using their own base colors
+  // Set node select states (0=normal, 1=selected, 2=neighbor)
   for (let i = 0; i < nodeHandle.nodeCount; i++) {
     const nid = nodeHandle.nodeIdByIndex.get(i);
     if (nid === nodeId) {
-      // Selected: amplify own color + white shift
-      nodeHandle.colorAttr.array[i * 3] = Math.min(1, nodeHandle.defaultColors[i * 3] * 2.0 + 0.3);
-      nodeHandle.colorAttr.array[i * 3 + 1] = Math.min(1, nodeHandle.defaultColors[i * 3 + 1] * 2.0 + 0.3);
-      nodeHandle.colorAttr.array[i * 3 + 2] = Math.min(1, nodeHandle.defaultColors[i * 3 + 2] * 2.0 + 0.3);
-      nodeHandle.sizeAttr.array[i] = nodeHandle.defaultSizes[i] * 2.5;
+      nodeHandle.selectAttr.array[i] = 1.0;
     } else if (neighbors.has(nid)) {
-      // Neighbors: brighten own color
-      nodeHandle.colorAttr.array[i * 3] = Math.min(1, nodeHandle.defaultColors[i * 3] * 1.6 + 0.1);
-      nodeHandle.colorAttr.array[i * 3 + 1] = Math.min(1, nodeHandle.defaultColors[i * 3 + 1] * 1.6 + 0.1);
-      nodeHandle.colorAttr.array[i * 3 + 2] = Math.min(1, nodeHandle.defaultColors[i * 3 + 2] * 1.6 + 0.1);
-      nodeHandle.sizeAttr.array[i] = nodeHandle.defaultSizes[i] * 1.5;
+      nodeHandle.selectAttr.array[i] = 2.0;
     } else {
-      // Restore default
-      nodeHandle.colorAttr.array[i * 3] = nodeHandle.defaultColors[i * 3];
-      nodeHandle.colorAttr.array[i * 3 + 1] = nodeHandle.defaultColors[i * 3 + 1];
-      nodeHandle.colorAttr.array[i * 3 + 2] = nodeHandle.defaultColors[i * 3 + 2];
-      nodeHandle.sizeAttr.array[i] = nodeHandle.defaultSizes[i];
+      nodeHandle.selectAttr.array[i] = 0.0;
     }
   }
-  nodeHandle.colorAttr.needsUpdate = true;
-  nodeHandle.sizeAttr.needsUpdate = true;
+  nodeHandle.selectAttr.needsUpdate = true;
 }
 
-// Clear selection, restore defaults
+// Clear selection
 export function clearSelection(edgeHandle, nodeHandle) {
   edgeHandle.colorAttr.array.set(edgeHandle.defaultColors);
   edgeHandle.alphaAttr.array.set(edgeHandle.defaultAlphas);
+  edgeHandle.edgeSelectAttr.array.fill(0);
   edgeHandle.colorAttr.needsUpdate = true;
   edgeHandle.alphaAttr.needsUpdate = true;
+  edgeHandle.edgeSelectAttr.needsUpdate = true;
 
-  nodeHandle.sizeAttr.array.set(nodeHandle.defaultSizes);
-  nodeHandle.colorAttr.array.set(nodeHandle.defaultColors);
-  nodeHandle.sizeAttr.needsUpdate = true;
-  nodeHandle.colorAttr.needsUpdate = true;
-}
-
-// Selection pulse: amplifies base colors, not flat override
-export function updateSelectionPulse(elapsed, edgeHandle, nodeHandle, nodeId, tesseract) {
-  if (!nodeId) return;
-  const connectedEdges = edgeHandle.edgeIndex.get(nodeId);
-  if (!connectedEdges) return;
-  const neighbors = new Set(tesseract.adjacency.get(nodeId) || []);
-
-  // Pulse wave
-  const wave = Math.sin(elapsed * 2.5);
-  const brightness = 1.5 + 0.5 * wave; // oscillates 1.0 to 2.0
-  const edgeAlpha = 0.6 + 0.25 * wave;
-
-  // Pulse selected edges: amplify their base color
-  for (const ei of connectedEdges) {
-    const vi = ei * 2;
-    edgeHandle.alphaAttr.array[vi] = edgeAlpha;
-    edgeHandle.alphaAttr.array[vi + 1] = edgeAlpha;
-    for (let v = vi; v <= vi + 1; v++) {
-      edgeHandle.colorAttr.array[v * 3] = Math.min(1, edgeHandle.defaultColors[v * 3] * brightness + 0.15);
-      edgeHandle.colorAttr.array[v * 3 + 1] = Math.min(1, edgeHandle.defaultColors[v * 3 + 1] * brightness + 0.15);
-      edgeHandle.colorAttr.array[v * 3 + 2] = Math.min(1, edgeHandle.defaultColors[v * 3 + 2] * brightness + 0.15);
-    }
-  }
-  edgeHandle.alphaAttr.needsUpdate = true;
-  edgeHandle.colorAttr.needsUpdate = true;
-
-  // Pulse nodes: amplify their own base color
-  const nodeBright = 1.6 + 0.6 * wave;
-  for (let i = 0; i < nodeHandle.nodeCount; i++) {
-    const nid = nodeHandle.nodeIdByIndex.get(i);
-    if (nid === nodeId) {
-      nodeHandle.sizeAttr.array[i] = nodeHandle.defaultSizes[i] * (2.0 + 0.5 * wave);
-      nodeHandle.colorAttr.array[i * 3] = Math.min(1, nodeHandle.defaultColors[i * 3] * nodeBright + 0.25);
-      nodeHandle.colorAttr.array[i * 3 + 1] = Math.min(1, nodeHandle.defaultColors[i * 3 + 1] * nodeBright + 0.25);
-      nodeHandle.colorAttr.array[i * 3 + 2] = Math.min(1, nodeHandle.defaultColors[i * 3 + 2] * nodeBright + 0.25);
-    } else if (neighbors.has(nid)) {
-      const phase = i * 0.3;
-      const nBright = 1.3 + 0.3 * Math.sin(elapsed * 2.0 + phase);
-      nodeHandle.sizeAttr.array[i] = nodeHandle.defaultSizes[i] * (1.3 + 0.2 * Math.sin(elapsed * 2.0 + phase));
-      nodeHandle.colorAttr.array[i * 3] = Math.min(1, nodeHandle.defaultColors[i * 3] * nBright + 0.08);
-      nodeHandle.colorAttr.array[i * 3 + 1] = Math.min(1, nodeHandle.defaultColors[i * 3 + 1] * nBright + 0.08);
-      nodeHandle.colorAttr.array[i * 3 + 2] = Math.min(1, nodeHandle.defaultColors[i * 3 + 2] * nBright + 0.08);
-    }
-  }
-  nodeHandle.sizeAttr.needsUpdate = true;
-  nodeHandle.colorAttr.needsUpdate = true;
+  nodeHandle.selectAttr.array.fill(0);
+  nodeHandle.selectAttr.needsUpdate = true;
 }
 
 // Highlight search matches in 3D (amplify matching nodes' own colors)

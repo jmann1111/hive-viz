@@ -7,3 +7,4 @@ public/graph.json
 .playwright-cli/
 output/
 screenshots/
+.vercel
