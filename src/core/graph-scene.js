@@ -178,11 +178,6 @@ export function buildEdges(scene, tesseract) {
           float flicker = sin(vDist * 500.0 + t * 3.0) * sin(vDist * 1200.0 + t * 2.3);
           float bright = 0.4 + 0.6 * (0.5 + 0.5 * flicker);
           a *= mix(1.0, bright * 1.5, inten);
-        } else if (mode > 4.5 && mode < 5.5) {
-          float h = (vPos.y + 300.0) / 600.0;
-          vec3 fire = mix(vec3(1.0, 0.1, 0.0), vec3(1.0, 0.9, 0.3), clamp(h, 0.0, 1.0));
-          c = mix(c, fire, inten * 0.7);
-          a = mix(a, 0.5, inten * 0.4);
         } else if (mode > 5.5 && mode < 6.5) {
           float band = sin(vPos.x * 0.01 + t * 0.8) * cos(vPos.z * 0.01 + t * 0.5);
           float hue = fract(0.45 + band * 0.15 + vPos.y * 0.001);
@@ -191,10 +186,11 @@ export function buildEdges(scene, tesseract) {
           a = mix(a, 0.5, inten * 0.3);
         } else if (mode > 6.5 && mode < 7.5) {
           float col = floor(vPos.x * 0.05 + vPos.z * 0.05);
-          float rain = fract(col * 0.37 - t * 0.5 + vPos.y * 0.003);
+          float rain = fract(col * 0.37 - t * 0.35 + vPos.y * 0.003);
           float bright = smoothstep(0.0, 0.15, rain) * smoothstep(0.4, 0.15, rain);
-          c = mix(c * 0.15, vec3(0.1, 1.0, 0.3), bright * inten);
-          a = mix(a * 0.2, 0.6, bright * inten);
+          vec3 mGreen = mix(c, vec3(0.15, 0.8, 0.35), 0.5);
+          c = mix(c * 0.4, mGreen * 1.3, bright * inten);
+          a = mix(a * 0.4, 0.5, bright * inten);
         } else if (mode > 7.5 && mode < 8.5) {
           float beat = mod(t * 1.2, 2.0);
           float delay = normDist * 0.3;
@@ -210,11 +206,30 @@ export function buildEdges(scene, tesseract) {
           c = mix(c, ocean, inten * 0.7);
           a = mix(a, 0.4, inten * 0.3);
         } else if (mode > 9.5 && mode < 10.5) {
-          float cluster = floor(vDist * 100.0);
-          float flash = step(0.97, fract(sin(cluster * 91.3 + floor(t * 3.0) * 17.7) * 43758.5453));
-          float fade = exp(-fract(t * 3.0) * 4.0);
-          c = mix(c, vec3(0.8, 0.85, 1.0) * 2.0, flash * fade * inten);
-          a = mix(a, 0.8, flash * fade * inten);
+          // Lightning: traveling bolts with branching
+          float maxBolt = 0.0;
+          for (int b = 0; b < 3; b++) {
+            float bs = float(b) * 37.0;
+            float bc = floor(t * 0.8 + bs);
+            float ox = sin(bc * 91.3 + bs) * 300.0;
+            float oy = 150.0 + cos(bc * 47.1 + bs) * 100.0;
+            float oz = cos(bc * 73.7 + bs) * 300.0;
+            float bp = fract(t * 0.8 + bs);
+            float wy = oy - bp * 800.0;
+            float cd = length(vPos.xz - vec2(ox, oz));
+            float cf = exp(-cd * cd * 0.00008);
+            float yd = vPos.y - wy;
+            float wb = exp(-yd * yd * 0.0005) * step(0.0, yd + 80.0);
+            float brSeed = sin(bc * 131.0 + bs) * 200.0;
+            float brY = wy + brSeed * 0.3;
+            float brD = length(vPos - vec3(ox + brSeed * 0.5, brY, oz + brSeed * 0.3));
+            float brB = exp(-brD * brD * 0.00015);
+            float bolt = max(wb * cf, brB * 0.6);
+            float fd = 1.0 - bp * 0.7;
+            maxBolt = max(maxBolt, bolt * fd);
+          }
+          c = mix(c, vec3(0.7, 0.8, 1.0) * 2.5, maxBolt * inten);
+          a = mix(a, 0.9, maxBolt * inten);
         } else if (mode > 10.5 && mode < 11.5) {
           float blob = sin(vPos.x * 0.008 + t * 0.4) * sin(vPos.y * 0.008 + t * 0.3) * sin(vPos.z * 0.008 + t * 0.5);
           float heat = 0.5 + 0.5 * blob;
@@ -230,8 +245,8 @@ export function buildEdges(scene, tesseract) {
           float wavefront = mod(t * 2.0, 3.0);
           float d2 = abs(normDist - wavefront * 0.5);
           float ring2 = exp(-d2 * d2 * 20.0);
-          c = mix(c * 0.3, c * 2.0, ring2 * inten);
-          a = mix(a * 0.3, 0.7, ring2 * inten);
+          c = mix(c * 0.7, c * 2.0, ring2 * inten);
+          a = mix(a * 0.5, 0.7, ring2 * inten);
         } else if (mode > 13.5 && mode < 14.5) {
           float flash2 = step(0.5, fract(t * 2.0));
           a *= mix(0.1, 1.0, flash2 * inten + (1.0 - inten));
@@ -409,12 +424,6 @@ export function buildNodes(scene, tesseract) {
           float bright = 0.4 + 0.6 * (0.5 + 0.5 * flicker);
           c = mix(c, c * bright * 2.0, inten);
           s *= 0.7 + bright * 0.6;
-        } else if (mode > 4.5 && mode < 5.5) {
-          // 5: Fire - warm gradient from bottom (red) to top (yellow-white)
-          float h = (pos.y + 300.0) / 600.0;
-          float flicker = 0.8 + 0.2 * sin(vid * 43.7 + t * 5.0);
-          vec3 fire = mix(vec3(1.0, 0.1, 0.0), vec3(1.0, 0.9, 0.3), clamp(h, 0.0, 1.0)) * flicker;
-          c = mix(c, fire, inten);
         } else if (mode > 5.5 && mode < 6.5) {
           // 6: Aurora - flowing vertical bands of green/teal/purple
           float band = sin(pos.x * 0.01 + t * 0.8) * cos(pos.z * 0.01 + t * 0.5);
@@ -424,10 +433,11 @@ export function buildNodes(scene, tesseract) {
         } else if (mode > 6.5 && mode < 7.5) {
           // 7: Matrix Rain - green cascade downward
           float col = floor(pos.x * 0.05 + pos.z * 0.05);
-          float rain = fract(col * 0.37 - t * 0.5 + pos.y * 0.003);
+          float rain = fract(col * 0.37 - t * 0.35 + pos.y * 0.003);
           float bright = smoothstep(0.0, 0.15, rain) * smoothstep(0.4, 0.15, rain);
-          c = mix(c * 0.15, vec3(0.1, 1.0, 0.3) * 1.5, bright * inten);
-          s *= 0.6 + bright * 0.8;
+          vec3 mGreen = mix(c, vec3(0.15, 0.8, 0.35), 0.6);
+          c = mix(c * 0.5, mGreen * 1.3, bright * inten);
+          s *= 0.85 + bright * 0.3;
         } else if (mode > 7.5 && mode < 8.5) {
           // 8: Heartbeat - sharp double-pulse like a heartbeat monitor
           float beat = mod(t * 1.2, 2.0);
@@ -448,12 +458,32 @@ export function buildNodes(scene, tesseract) {
           vec3 ocean = mix(vec3(0.0, 0.05, 0.2), vec3(0.1, 0.5, 0.9), w);
           c = mix(c, ocean, inten);
         } else if (mode > 9.5 && mode < 10.5) {
-          // 10: Lightning - random bright flashes across clusters
-          float cluster = floor(vid / 20.0);
-          float flash = step(0.97, fract(sin(cluster * 91.3 + floor(t * 3.0) * 17.7) * 43758.5453));
-          float fade = exp(-fract(t * 3.0) * 4.0);
-          c = mix(c, vec3(0.8, 0.85, 1.0) * 2.5, flash * fade * inten);
-          s *= 1.0 + flash * fade * 1.5;
+          // 10: Lightning - traveling bolts with branching
+          float maxBolt = 0.0;
+          for (int b = 0; b < 3; b++) {
+            float bs = float(b) * 37.0;
+            float bc = floor(t * 0.8 + bs);
+            float ox = sin(bc * 91.3 + bs) * 300.0;
+            float oy = 150.0 + cos(bc * 47.1 + bs) * 100.0;
+            float oz = cos(bc * 73.7 + bs) * 300.0;
+            float bp = fract(t * 0.8 + bs);
+            float wy = oy - bp * 800.0;
+            float cd = length(pos.xz - vec2(ox, oz));
+            float cf = exp(-cd * cd * 0.00008);
+            float yd = pos.y - wy;
+            float wb = exp(-yd * yd * 0.0005) * step(0.0, yd + 80.0);
+            float brSeed = sin(bc * 131.0 + bs) * 200.0;
+            float brY = wy + brSeed * 0.3;
+            float brD = length(pos - vec3(ox + brSeed * 0.5, brY, oz + brSeed * 0.3));
+            float brB = exp(-brD * brD * 0.00015);
+            float nd = length(pos - vec3(ox, wy, oz));
+            float clB = exp(-nd * nd * 0.00005);
+            float bolt = max(wb * cf, max(brB * 0.6, clB * 0.5));
+            float fd = 1.0 - bp * 0.7;
+            maxBolt = max(maxBolt, bolt * fd);
+          }
+          c = mix(c, vec3(0.7, 0.8, 1.0) * 2.5, maxBolt * inten);
+          s *= 1.0 + maxBolt * 1.5;
         } else if (mode > 10.5 && mode < 11.5) {
           // 11: Lava - slow pulsing red/orange/yellow blobs
           float blob = sin(pos.x * 0.008 + t * 0.4) * sin(pos.y * 0.008 + t * 0.3) * sin(pos.z * 0.008 + t * 0.5);
@@ -471,8 +501,8 @@ export function buildNodes(scene, tesseract) {
           float wavefront = mod(t * 2.0, 3.0);
           float d = abs(normDist - wavefront * 0.5);
           float ring = exp(-d * d * 20.0);
-          c = mix(c * 0.4, c * 2.5, ring * inten);
-          s *= 0.7 + ring * 0.8;
+          c = mix(c * 0.75, c * 2.0, ring * inten);
+          s *= 0.85 + ring * 0.5;
         } else if (mode > 13.5 && mode < 14.5) {
           // 14: Strobe - sharp on/off flash
           float flash = step(0.5, fract(t * 2.0));

@@ -189,7 +189,6 @@ const LIGHTSHOW_PRESETS = {
   breathe: { label: 'Breathe', mode: 2 },
   ripple: { label: 'Ripple', mode: 3 },
   starlight: { label: 'Starlight', mode: 4 },
-  fire: { label: 'Fire', mode: 5 },
   aurora: { label: 'Aurora', mode: 6 },
   matrix: { label: 'Matrix', mode: 7 },
   heartbeat: { label: 'Heartbeat', mode: 8 },
@@ -371,22 +370,15 @@ function toggleSidebar() {
 // ============ LAYOUT PRESETS ============
 const LAYOUT_PRESETS = {
   galaxy: { label: 'Galaxy', fn: layoutGalaxy },
-  helix: { label: 'DNA Helix', fn: layoutHelix },
   sphere: { label: 'Sphere', fn: layoutSphere },
   ring: { label: 'Halo Ring', fn: layoutRing },
   pyramid: { label: 'Pyramid', fn: layoutPyramid },
   grid: { label: 'Grid Cube', fn: layoutGrid },
   spiral: { label: 'Spiral Tower', fn: layoutSpiral },
-  tree: { label: 'Tree', fn: layoutTree },
   torus_knot: { label: 'Torus Knot', fn: layoutTorusKnot },
-  flower: { label: 'Flower of Life', fn: layoutFlower },
-  metatron: { label: 'Metatron Cube', fn: layoutMetatron },
   vesica: { label: 'Vesica Piscis', fn: layoutVesica },
   icosahedron: { label: 'Icosahedron', fn: layoutIcosahedron },
   mobius: { label: 'Mobius Strip', fn: layoutMobius },
-  galaxy_arm: { label: 'Spiral Galaxy', fn: layoutGalaxyArm },
-  ufo: { label: 'UFO', fn: layoutUFO },
-  crop_circle: { label: 'Crop Circle', fn: layoutCropCircle },
   wormhole: { label: 'Wormhole', fn: layoutWormhole },
   infinity: { label: 'Infinity', fn: layoutInfinity },
   wave: { label: 'Wave', fn: layoutWave },
@@ -421,26 +413,6 @@ function layoutGalaxy(tesseract) {
   return tesseract.nodes.map(n => ({ x: n._origX, y: n._origY, z: n._origZ }));
 }
 
-function layoutHelix(tesseract) {
-  const sorted = sortedNodeIndices(tesseract);
-  const n = sorted.length;
-  const positions = new Array(tesseract.nodes.length);
-  const height = 600;
-  const radius = 150;
-  const turns = 6;
-  for (let rank = 0; rank < n; rank++) {
-    const t = rank / (n - 1);
-    const angle = t * Math.PI * 2 * turns;
-    // Double helix: alternate strands
-    const strand = rank % 2 === 0 ? 1 : -1;
-    positions[sorted[rank]] = {
-      x: Math.cos(angle) * radius * strand,
-      y: (t - 0.5) * height,
-      z: Math.sin(angle) * radius * strand,
-    };
-  }
-  return positions;
-}
 
 function layoutSphere(tesseract) {
   const sorted = sortedNodeIndices(tesseract);
@@ -489,22 +461,59 @@ function layoutPyramid(tesseract) {
   const sorted = sortedNodeIndices(tesseract);
   const n = sorted.length;
   const positions = new Array(n);
-  const layers = 12;
+  const S = 300; // half-width of base
+  const H = 500; // height
+  const apex = { x: 0, y: H * 0.5, z: 0 };
+  const base = [
+    { x: -S, y: -H * 0.5, z: -S },
+    { x:  S, y: -H * 0.5, z: -S },
+    { x:  S, y: -H * 0.5, z:  S },
+    { x: -S, y: -H * 0.5, z:  S },
+  ];
+  // 8 edges: 4 base + 4 lateral
+  const edges = [
+    [base[0], base[1]], [base[1], base[2]], [base[2], base[3]], [base[3], base[0]],
+    [base[0], apex], [base[1], apex], [base[2], apex], [base[3], apex],
+  ];
+  const edgeCount = Math.floor(n * 0.5);
+  const faceCount = Math.floor(n * 0.3);
   let placed = 0;
-  for (let layer = 0; layer < layers && placed < n; layer++) {
-    const t = layer / (layers - 1);
-    const layerRadius = (1 - t) * 250; // wider at bottom
-    const y = (t - 0.5) * 500;
-    const perLayer = Math.max(1, Math.floor((1 - t) * (n / (layers * 0.4))));
-    for (let j = 0; j < perLayer && placed < n; j++) {
-      const angle = (j / perLayer) * Math.PI * 2 + layer * 0.3;
-      positions[sorted[placed]] = {
-        x: Math.cos(angle) * layerRadius,
-        y: y,
-        z: Math.sin(angle) * layerRadius,
-      };
-      placed++;
-    }
+  // Nodes along edges
+  for (let i = 0; i < edgeCount && placed < n; i++) {
+    const edge = edges[i % edges.length];
+    const t = (Math.floor(i / edges.length) + 0.5) / Math.ceil(edgeCount / edges.length);
+    const j = 4;
+    positions[sorted[placed]] = {
+      x: edge[0].x + (edge[1].x - edge[0].x) * t + Math.sin(placed * 127.1) * j,
+      y: edge[0].y + (edge[1].y - edge[0].y) * t + Math.sin(placed * 311.7) * j,
+      z: edge[0].z + (edge[1].z - edge[0].z) * t + Math.sin(placed * 419.2) * j,
+    };
+    placed++;
+  }
+  // Nodes on 4 triangular faces
+  for (let i = 0; i < faceCount && placed < n; i++) {
+    const fi = i % 4;
+    const a = base[fi], b = base[(fi + 1) % 4];
+    let u = Math.abs(Math.sin(placed * 127.1 + 0.5));
+    let v = Math.abs(Math.sin(placed * 311.7 + 0.5));
+    if (u + v > 1) { u = 1 - u; v = 1 - v; }
+    const w = 1 - u - v;
+    positions[sorted[placed]] = {
+      x: a.x * u + b.x * v + apex.x * w,
+      y: a.y * u + b.y * v + apex.y * w,
+      z: a.z * u + b.z * v + apex.z * w,
+    };
+    placed++;
+  }
+  // Base fill
+  for (; placed < n; placed++) {
+    const u = Math.sin(placed * 127.1) * 0.5 + 0.5;
+    const v = Math.sin(placed * 311.7) * 0.5 + 0.5;
+    positions[sorted[placed]] = {
+      x: -S + u * 2 * S,
+      y: -H * 0.5,
+      z: -S + v * 2 * S,
+    };
   }
   return positions;
 }
@@ -513,17 +522,58 @@ function layoutGrid(tesseract) {
   const sorted = sortedNodeIndices(tesseract);
   const n = sorted.length;
   const positions = new Array(n);
-  const side = Math.ceil(Math.cbrt(n));
-  const spacing = 40;
-  const offset = (side - 1) * spacing / 2;
-  for (let rank = 0; rank < n; rank++) {
-    const ix = rank % side;
-    const iy = Math.floor(rank / side) % side;
-    const iz = Math.floor(rank / (side * side));
-    positions[sorted[rank]] = {
-      x: ix * spacing - offset,
-      y: iy * spacing - offset,
-      z: iz * spacing - offset,
+  const S = 250; // half-side
+  // 8 corners
+  const corners = [];
+  for (let x = -1; x <= 1; x += 2)
+    for (let y = -1; y <= 1; y += 2)
+      for (let z = -1; z <= 1; z += 2)
+        corners.push({ x: x * S, y: y * S, z: z * S });
+  // 12 edges (pairs differing in exactly 1 axis)
+  const edgeList = [];
+  for (let i = 0; i < 8; i++)
+    for (let j = i + 1; j < 8; j++) {
+      const dx = corners[i].x !== corners[j].x ? 1 : 0;
+      const dy = corners[i].y !== corners[j].y ? 1 : 0;
+      const dz = corners[i].z !== corners[j].z ? 1 : 0;
+      if (dx + dy + dz === 1) edgeList.push([corners[i], corners[j]]);
+    }
+  const edgeN = Math.floor(n * 0.6);
+  const faceN = Math.floor(n * 0.25);
+  let placed = 0;
+  // Edge nodes: distribute evenly across 12 edges
+  for (let i = 0; i < edgeN && placed < n; i++) {
+    const edge = edgeList[i % edgeList.length];
+    const t = (Math.floor(i / edgeList.length) + 0.5) / Math.ceil(edgeN / edgeList.length);
+    const j = 3;
+    positions[sorted[placed]] = {
+      x: edge[0].x + (edge[1].x - edge[0].x) * t + Math.sin(placed * 127.1) * j,
+      y: edge[0].y + (edge[1].y - edge[0].y) * t + Math.sin(placed * 311.7) * j,
+      z: edge[0].z + (edge[1].z - edge[0].z) * t + Math.sin(placed * 419.2) * j,
+    };
+    placed++;
+  }
+  // Face nodes: distribute across 6 faces
+  const faces = [
+    ['x', -S], ['x', S], ['y', -S], ['y', S], ['z', -S], ['z', S],
+  ];
+  for (let i = 0; i < faceN && placed < n; i++) {
+    const face = faces[i % 6];
+    const u = (Math.sin(placed * 127.1) * 0.5 + 0.5) * 2 * S - S;
+    const v = (Math.sin(placed * 311.7) * 0.5 + 0.5) * 2 * S - S;
+    const pos = { x: 0, y: 0, z: 0 };
+    if (face[0] === 'x') { pos.x = face[1]; pos.y = u; pos.z = v; }
+    else if (face[0] === 'y') { pos.x = u; pos.y = face[1]; pos.z = v; }
+    else { pos.x = u; pos.y = v; pos.z = face[1]; }
+    positions[sorted[placed]] = pos;
+    placed++;
+  }
+  // Sparse interior
+  for (; placed < n; placed++) {
+    positions[sorted[placed]] = {
+      x: (Math.sin(placed * 127.1) * 0.5 + 0.5) * 2 * S - S,
+      y: (Math.sin(placed * 311.7) * 0.5 + 0.5) * 2 * S - S,
+      z: (Math.sin(placed * 419.2) * 0.5 + 0.5) * 2 * S - S,
     };
   }
   return positions;
@@ -548,37 +598,6 @@ function layoutSpiral(tesseract) {
   return positions;
 }
 
-function layoutTree(tesseract) {
-  const sorted = sortedNodeIndices(tesseract);
-  const n = sorted.length;
-  const positions = new Array(n);
-  // Group by folder, stack vertically
-  const folders = {};
-  for (const idx of sorted) {
-    const f = tesseract.nodes[idx].folder || 'unknown';
-    if (!folders[f]) folders[f] = [];
-    folders[f].push(idx);
-  }
-  const folderKeys = Object.keys(folders);
-  const angleStep = (Math.PI * 2) / folderKeys.length;
-  for (let fi = 0; fi < folderKeys.length; fi++) {
-    const group = folders[folderKeys[fi]];
-    const branchAngle = fi * angleStep;
-    const branchRadius = 200;
-    for (let j = 0; j < group.length; j++) {
-      const t = j / Math.max(1, group.length - 1);
-      const spread = 30 + t * 60;
-      const jitter = ((j * 17) % 7 - 3) * 8;
-      positions[group[j]] = {
-        x: Math.cos(branchAngle) * (branchRadius * t + spread) + jitter,
-        y: -250 + t * 500,
-        z: Math.sin(branchAngle) * (branchRadius * t + spread) + jitter,
-      };
-    }
-  }
-  return positions;
-}
-
 function layoutTorusKnot(tesseract) {
   const sorted = sortedNodeIndices(tesseract);
   const n = sorted.length;
@@ -591,51 +610,6 @@ function layoutTorusKnot(tesseract) {
     const y = (R + r * Math.cos(phi)) * Math.sin(t);
     const z = r * Math.sin(phi);
     positions[sorted[rank]] = { x, y, z };
-  }
-  return positions;
-}
-
-function layoutFlower(tesseract) {
-  const sorted = sortedNodeIndices(tesseract);
-  const n = sorted.length;
-  const positions = new Array(n);
-  const petals = 6;
-  const layers = 10;
-  for (let rank = 0; rank < n; rank++) {
-    const layer = Math.floor((rank / n) * layers);
-    const layerR = 50 + layer * 35;
-    const angle = (rank / n) * Math.PI * 2 * 8 + layer * 0.5;
-    const petalPulse = 1 + 0.35 * Math.cos(angle * petals);
-    const z = (layer - layers / 2) * 20;
-    positions[sorted[rank]] = {
-      x: Math.cos(angle) * layerR * petalPulse,
-      y: Math.sin(angle) * layerR * petalPulse,
-      z,
-    };
-  }
-  return positions;
-}
-
-function layoutMetatron(tesseract) {
-  const sorted = sortedNodeIndices(tesseract);
-  const n = sorted.length;
-  const positions = new Array(n);
-  const keyPoints = [{ x: 0, y: 0 }];
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2;
-    keyPoints.push({ x: Math.cos(a) * 200, y: Math.sin(a) * 200 });
-    keyPoints.push({ x: Math.cos(a) * 100, y: Math.sin(a) * 100 });
-  }
-  for (let rank = 0; rank < n; rank++) {
-    const kp = keyPoints[rank % keyPoints.length];
-    const shell = Math.floor(rank / keyPoints.length);
-    const r = 15 + shell * 8;
-    const angle = rank * 2.399;
-    positions[sorted[rank]] = {
-      x: kp.x + Math.cos(angle) * r,
-      y: kp.y + Math.sin(angle) * r,
-      z: (shell - Math.floor(n / keyPoints.length / 2)) * 18,
-    };
   }
   return positions;
 }
@@ -697,91 +671,6 @@ function layoutMobius(tesseract) {
       x: (R + s * Math.cos(halfT)) * Math.cos(t),
       y: (R + s * Math.cos(halfT)) * Math.sin(t) * 0.5,
       z: s * Math.sin(halfT),
-    };
-  }
-  return positions;
-}
-
-function layoutGalaxyArm(tesseract) {
-  const sorted = sortedNodeIndices(tesseract);
-  const n = sorted.length;
-  const positions = new Array(n);
-  const arms = 4;
-  for (let rank = 0; rank < n; rank++) {
-    const arm = rank % arms;
-    const t = (rank / n) * 3;
-    const angle = t * Math.PI * 2 + (arm / arms) * Math.PI * 2;
-    const r = 30 + t * 200;
-    const scatter = 15 + t * 20;
-    const jx = (Math.sin(rank * 127.1) * 0.5 + 0.5) * scatter;
-    const jz = (Math.sin(rank * 311.7) * 0.5 + 0.5) * scatter;
-    positions[sorted[rank]] = {
-      x: Math.cos(angle) * r + jx,
-      y: (Math.sin(rank * 43.7) * 0.5) * 30 * t,
-      z: Math.sin(angle) * r + jz,
-    };
-  }
-  return positions;
-}
-
-function layoutUFO(tesseract) {
-  const sorted = sortedNodeIndices(tesseract);
-  const n = sorted.length;
-  const positions = new Array(n);
-  for (let rank = 0; rank < n; rank++) {
-    const t = rank / n;
-    if (t < 0.6) {
-      // Disc
-      const angle = (rank / (n * 0.6)) * Math.PI * 2 * 5;
-      const r = 50 + (rank / (n * 0.6)) * 250;
-      const flatness = 1 - Math.pow(Math.abs(r - 150) / 150, 2);
-      positions[sorted[rank]] = {
-        x: Math.cos(angle) * r,
-        y: Math.sin(rank * 2.1) * 8 * flatness,
-        z: Math.sin(angle) * r,
-      };
-    } else if (t < 0.8) {
-      // Dome top
-      const dt = (t - 0.6) / 0.2;
-      const angle = dt * Math.PI * 2 * 3;
-      const r = (1 - dt) * 100;
-      positions[sorted[rank]] = {
-        x: Math.cos(angle) * r,
-        y: 20 + dt * 120,
-        z: Math.sin(angle) * r,
-      };
-    } else {
-      // Beam below
-      const bt = (t - 0.8) / 0.2;
-      const angle = bt * Math.PI * 2 * 2;
-      const r = bt * 60;
-      positions[sorted[rank]] = {
-        x: Math.cos(angle) * r,
-        y: -20 - bt * 200,
-        z: Math.sin(angle) * r,
-      };
-    }
-  }
-  return positions;
-}
-
-function layoutCropCircle(tesseract) {
-  const sorted = sortedNodeIndices(tesseract);
-  const n = sorted.length;
-  const positions = new Array(n);
-  const rings = 8;
-  for (let rank = 0; rank < n; rank++) {
-    const ri = Math.floor((rank / n) * rings);
-    const r = 40 + ri * 40;
-    const ringStart = Math.floor((ri / rings) * n);
-    const ringEnd = Math.floor(((ri + 1) / rings) * n);
-    const j = rank - ringStart;
-    const count = ringEnd - ringStart;
-    const angle = (j / count) * Math.PI * 2 + ri * 0.5;
-    positions[sorted[rank]] = {
-      x: Math.cos(angle) * r,
-      y: (rank % 3 - 1) * 5,
-      z: Math.sin(angle) * r,
     };
   }
   return positions;
@@ -1072,7 +961,9 @@ function updateLayoutTransition(dt) {
   if (t >= 1) layoutTransition = null;
 }
 
-let activePanel = null; // 'layouts' | 'lightshow' | null
+let layoutStripOpen = false;
+let lightStripOpen = false;
+let focusedPanel = null; // 'layouts' | 'lightshow' | null
 let currentLayoutIndex = 0;
 let currentLightIndex = 0;
 const layoutKeys = Object.keys(LAYOUT_PRESETS);
@@ -1121,8 +1012,11 @@ function createLayoutMenu() {
     btn.addEventListener('mouseleave', () => updateLayoutHighlight());
     btn.addEventListener('click', () => {
       currentLayoutIndex = layoutKeys.indexOf(key);
+      focusedPanel = 'layouts';
       startLayoutTransition(key);
       updateLayoutHighlight();
+      updateFocusIndicator();
+      updateCurrentLabel();
     });
     layoutInner.appendChild(btn);
     layoutBtns.push(btn);
@@ -1160,10 +1054,13 @@ function createLayoutMenu() {
     btn.addEventListener('mouseleave', () => updateLightHighlight());
     btn.addEventListener('click', () => {
       currentLightIndex = lightKeys.indexOf(key);
+      focusedPanel = 'lightshow';
       lightMode = item.mode;
       syncLightshow();
       updateLightHighlight();
-      updateLightToggleStyle();
+      updateToggleStyles();
+      updateFocusIndicator();
+      updateCurrentLabel();
     });
     lightPresetRow.appendChild(btn);
     lightBtns.push(btn);
@@ -1215,15 +1112,10 @@ function createLayoutMenu() {
 
   function updateCurrentLabel() {
     const parts = [];
-    if (activePanel === 'layouts') {
-      parts.push(LAYOUT_PRESETS[layoutKeys[currentLayoutIndex]]?.label || '');
-      parts.push('< arrow keys >');
-    } else if (activePanel === 'lightshow') {
-      const lk = lightKeys[currentLightIndex];
-      parts.push(LIGHTSHOW_PRESETS[lk]?.label || '');
-      parts.push('< arrow keys >');
-    }
-    currentLabel.textContent = parts.join('  ');
+    if (layoutStripOpen) parts.push(LAYOUT_PRESETS[layoutKeys[currentLayoutIndex]]?.label || '');
+    if (lightStripOpen) parts.push(LIGHTSHOW_PRESETS[lightKeys[currentLightIndex]]?.label || '');
+    if (focusedPanel) parts.push('< arrow keys >');
+    currentLabel.textContent = parts.join('  \u00b7  ');
   }
 
   // -- Toggle buttons --
@@ -1235,8 +1127,10 @@ function createLayoutMenu() {
   lightToggle.textContent = 'Lightshow';
   lightToggle.style.cssText = btnStyle + 'margin-left:6px;';
 
-  function updateLightToggleStyle() {
-    if (activePanel === 'lightshow') {
+  function updateToggleStyles() {
+    layoutToggle.style.color = layoutStripOpen ? '#aaa' : '#666';
+    layoutToggle.style.borderColor = layoutStripOpen ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)';
+    if (lightStripOpen) {
       lightToggle.style.color = '#aaa';
       lightToggle.style.borderColor = 'rgba(255,255,255,0.15)';
     } else if (lightMode > 0) {
@@ -1246,6 +1140,13 @@ function createLayoutMenu() {
       lightToggle.style.color = '#666';
       lightToggle.style.borderColor = 'rgba(255,255,255,0.08)';
     }
+  }
+
+  function updateFocusIndicator() {
+    layoutStrip.style.borderBottom = (focusedPanel === 'layouts' && layoutStripOpen)
+      ? '1px solid rgba(255,255,255,0.1)' : 'none';
+    lightStrip.style.borderBottom = (focusedPanel === 'lightshow' && lightStripOpen)
+      ? '1px solid rgba(255,255,255,0.1)' : 'none';
   }
 
   const rotateBtn = document.createElement('button');
@@ -1264,27 +1165,31 @@ function createLayoutMenu() {
   rotateBtn.addEventListener('mouseenter', () => { if (!autoRotateOn) rotateBtn.style.color = '#999'; });
   rotateBtn.addEventListener('mouseleave', () => updateRotateBtn());
 
-  function openPanel(panel) {
-    if (activePanel === panel) { closeAll(); return; }
-    activePanel = panel;
-    layoutStrip.style.display = panel === 'layouts' ? 'block' : 'none';
-    lightStrip.style.display = panel === 'lightshow' ? 'block' : 'none';
-    layoutToggle.style.color = panel === 'layouts' ? '#aaa' : '#666';
-    layoutToggle.style.borderColor = panel === 'layouts' ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)';
-    updateLightToggleStyle();
+  function togglePanel(panel) {
+    if (panel === 'layouts') {
+      layoutStripOpen = !layoutStripOpen;
+      layoutStrip.style.display = layoutStripOpen ? 'block' : 'none';
+      if (layoutStripOpen) {
+        focusedPanel = 'layouts';
+        updateLayoutHighlight();
+        scrollToActive(layoutInner, layoutBtns, currentLayoutIndex);
+      } else if (focusedPanel === 'layouts') {
+        focusedPanel = lightStripOpen ? 'lightshow' : null;
+      }
+    } else if (panel === 'lightshow') {
+      lightStripOpen = !lightStripOpen;
+      lightStrip.style.display = lightStripOpen ? 'block' : 'none';
+      if (lightStripOpen) {
+        focusedPanel = 'lightshow';
+        updateLightHighlight();
+        scrollToActive(lightPresetRow, lightBtns, currentLightIndex);
+      } else if (focusedPanel === 'lightshow') {
+        focusedPanel = layoutStripOpen ? 'layouts' : null;
+      }
+    }
+    updateToggleStyles();
+    updateFocusIndicator();
     updateCurrentLabel();
-    if (panel === 'layouts') { updateLayoutHighlight(); scrollToActive(layoutInner, layoutBtns, currentLayoutIndex); }
-    if (panel === 'lightshow') { updateLightHighlight(); scrollToActive(lightPresetRow, lightBtns, currentLightIndex); }
-  }
-
-  function closeAll() {
-    activePanel = null;
-    layoutStrip.style.display = 'none';
-    lightStrip.style.display = 'none';
-    layoutToggle.style.color = '#666';
-    layoutToggle.style.borderColor = 'rgba(255,255,255,0.08)';
-    updateLightToggleStyle();
-    currentLabel.textContent = '';
   }
 
   function scrollToActive(container, btns, idx) {
@@ -1292,32 +1197,40 @@ function createLayoutMenu() {
     if (btn) btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
   }
 
-  layoutToggle.addEventListener('click', () => openPanel('layouts'));
-  lightToggle.addEventListener('click', () => openPanel('lightshow'));
-  layoutToggle.addEventListener('mouseenter', () => { if (activePanel !== 'layouts') layoutToggle.style.color = '#999'; });
-  layoutToggle.addEventListener('mouseleave', () => { if (activePanel !== 'layouts') layoutToggle.style.color = '#666'; });
-  lightToggle.addEventListener('mouseenter', () => { if (activePanel !== 'lightshow') lightToggle.style.color = '#999'; });
-  lightToggle.addEventListener('mouseleave', () => updateLightToggleStyle());
+  layoutToggle.addEventListener('click', () => togglePanel('layouts'));
+  lightToggle.addEventListener('click', () => togglePanel('lightshow'));
+  layoutToggle.addEventListener('mouseenter', () => { if (!layoutStripOpen) layoutToggle.style.color = '#999'; });
+  layoutToggle.addEventListener('mouseleave', () => { if (!layoutStripOpen) layoutToggle.style.color = '#666'; });
+  lightToggle.addEventListener('mouseenter', () => { if (!lightStripOpen) lightToggle.style.color = '#999'; });
+  lightToggle.addEventListener('mouseleave', () => updateToggleStyles());
 
-  // -- Arrow key cycling --
+  // -- Arrow key cycling + Tab to swap focus --
   window.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT') return;
+    // Tab: swap focus between open panels
+    if (e.key === 'Tab' && !e.shiftKey && layoutStripOpen && lightStripOpen) {
+      e.preventDefault();
+      focusedPanel = focusedPanel === 'layouts' ? 'lightshow' : 'layouts';
+      updateFocusIndicator();
+      updateCurrentLabel();
+      return;
+    }
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-      if (!activePanel) return;
+      if (!focusedPanel) return;
       e.preventDefault();
       const dir = e.key === 'ArrowRight' ? 1 : -1;
-      if (activePanel === 'layouts') {
+      if (focusedPanel === 'layouts') {
         currentLayoutIndex = (currentLayoutIndex + dir + layoutKeys.length) % layoutKeys.length;
         startLayoutTransition(layoutKeys[currentLayoutIndex]);
         updateLayoutHighlight();
         updateCurrentLabel();
         scrollToActive(layoutInner, layoutBtns, currentLayoutIndex);
-      } else if (activePanel === 'lightshow') {
+      } else if (focusedPanel === 'lightshow') {
         currentLightIndex = (currentLightIndex + dir + lightKeys.length) % lightKeys.length;
         lightMode = LIGHTSHOW_PRESETS[lightKeys[currentLightIndex]].mode;
         syncLightshow();
         updateLightHighlight();
-        updateLightToggleStyle();
+        updateToggleStyles();
         updateCurrentLabel();
         scrollToActive(lightPresetRow, lightBtns, currentLightIndex);
       }
