@@ -105,6 +105,7 @@ export function buildEdges(scene, tesseract) {
       uLightMode: { value: 0.0 },
       uLightSpeed: { value: 1.0 },
       uLightIntensity: { value: 1.0 },
+      uPulseCenter: { value: new THREE.Vector3(0, 0, 0) },
     },
     vertexShader: `
       attribute float alpha;
@@ -130,6 +131,7 @@ export function buildEdges(scene, tesseract) {
       uniform float uLightMode;
       uniform float uLightSpeed;
       uniform float uLightIntensity;
+      uniform vec3 uPulseCenter;
       varying float vAlpha;
       varying vec3 vColor;
       varying float vDist;
@@ -167,17 +169,24 @@ export function buildEdges(scene, tesseract) {
           c = mix(c, hsv2rgb(vec3(hue, 0.9, 1.0)), inten * 0.7);
           a = mix(a, 0.6, inten * 0.5);
         } else if (mode > 3.5 && mode < 4.5) {
+          // Starlight - edges shimmer with bright pulsing glow
           float phase1 = fract(sin(vDist * 500.0) * 43758.5);
-          float twinkle = sin(t * (2.0 + phase1 * 4.0) + phase1 * 6.28);
-          float pop = pow(max(0.0, twinkle), 3.0);
-          a *= mix(1.0, 0.4 + pop * 1.5, inten);
+          float phase2 = fract(sin(vDist * 1100.0) * 43758.5);
+          float twinkle = sin(t * (2.0 + phase1 * 4.0) + phase1 * 6.28) * sin(t * (1.5 + phase2 * 3.0) + phase2 * 6.28);
+          float pop = pow(max(0.0, twinkle), 2.0);
+          float bright = 0.7 + pop * 1.8;
+          c = mix(c, c * bright + vec3(0.15, 0.18, 0.22) * pop, inten);
+          a *= mix(1.0, 0.6 + pop * 1.2, inten);
         } else if (mode > 5.5 && mode < 6.5) {
-          float curtain = sin(vPos.x * 0.008 + t * 0.6) * cos(vPos.z * 0.008 + t * 0.4);
-          float wave = sin(vPos.y * 0.015 - t * 2.0 + curtain * 2.0) * 0.5 + 0.5;
-          float hue = fract(0.3 + curtain * 0.12 + wave * 0.1 + vPos.y * 0.0008);
-          vec3 aurora = hsv2rgb(vec3(hue, 0.75, 0.8 + wave * 0.2));
-          c = mix(c, aurora, inten * (0.5 + 0.5 * curtain));
-          a = mix(a, 0.5, inten * 0.3);
+          // Aurora - flowing curtains with visible sweeping motion
+          float curtainX = sin(vPos.x * 0.006 + t * 1.2) * cos(vPos.z * 0.006 + t * 0.8);
+          float sweep = sin(vPos.x * 0.003 - t * 0.7) * 0.5 + 0.5;
+          float wave = sin(vPos.y * 0.012 - t * 3.0 + curtainX * 3.0) * 0.5 + 0.5;
+          float hue = fract(0.28 + curtainX * 0.15 + sweep * 0.08 + wave * 0.12);
+          vec3 aurora = hsv2rgb(vec3(hue, 0.8, 0.9 + wave * 0.1));
+          float shimmerA = 0.4 + 0.6 * pow(sweep, 0.5);
+          c = mix(c, aurora * (1.0 + wave * 0.4), inten * shimmerA);
+          a = mix(a, 0.5 + wave * 0.2, inten * 0.5);
         } else if (mode > 6.5 && mode < 7.5) {
           float col = floor(vPos.x * 0.05 + vPos.z * 0.05);
           float rain = fract(col * 0.37 - t * 0.35 + vPos.y * 0.003);
@@ -194,11 +203,18 @@ export function buildEdges(scene, tesseract) {
           c = mix(c * 0.3, vec3(1.0, 0.2, 0.3) * 1.5, dPulse * inten);
           a = mix(a * 0.2, 0.7, dPulse * inten);
         } else if (mode > 8.5 && mode < 9.5) {
-          float wave1 = sin(vPos.x * 0.015 + t * 1.2) * cos(vPos.z * 0.012 + t * 0.8);
-          float w = 0.5 + 0.5 * wave1;
-          vec3 ocean = mix(vec3(0.0, 0.05, 0.2), vec3(0.1, 0.5, 0.9), w);
-          c = mix(c, ocean, inten * 0.7);
-          a = mix(a, 0.4, inten * 0.3);
+          // Ocean - rolling waves with visible swell motion
+          float swell1 = sin(vPos.x * 0.01 + t * 1.5) * cos(vPos.z * 0.008 + t * 1.0);
+          float swell2 = sin(vPos.x * 0.005 - t * 0.8 + vPos.z * 0.007) * 0.5;
+          float foam = pow(max(0.0, swell1), 3.0);
+          float depth = 0.5 + 0.5 * (swell1 + swell2 * 0.5);
+          vec3 deep = vec3(0.0, 0.04, 0.18);
+          vec3 mid = vec3(0.05, 0.3, 0.7);
+          vec3 crest = vec3(0.3, 0.7, 1.0);
+          vec3 ocean = mix(deep, mid, depth);
+          ocean = mix(ocean, crest, foam * 0.6);
+          c = mix(c, ocean, inten * 0.8);
+          a = mix(a, 0.4 + foam * 0.3, inten * 0.4);
         } else if (mode > 9.5 && mode < 10.5) {
           // Lightning: traveling bolts with branching
           float maxBolt = 0.0;
@@ -225,26 +241,27 @@ export function buildEdges(scene, tesseract) {
           c = mix(c, vec3(0.7, 0.8, 1.0) * 2.5, maxBolt * inten);
           a = mix(a, 0.9, maxBolt * inten);
         } else if (mode > 10.5 && mode < 11.5) {
-          float blob = sin(vPos.x * 0.008 + t * 0.6) * sin(vPos.y * 0.01 + t * 0.5) * sin(vPos.z * 0.008 + t * 0.7);
-          float heat = 0.5 + 0.5 * blob;
-          float flicker = 0.6 + 0.4 * sin(vDist * 400.0 + t * 8.0) * sin(vDist * 900.0 + t * 6.0);
-          vec3 lava = mix(vec3(0.5, 0.0, 0.0), vec3(1.0, 0.6, 0.0), heat) * flicker;
-          c = mix(c, lava, inten * heat * 0.8);
-          a = mix(a, 0.5, inten * heat * 0.4);
+          // Lava - bright roiling fire with hot flicker
+          float turb = sin(vPos.x * 0.012 + t * 1.8) * sin(vPos.z * 0.01 + t * 1.5) + sin(vPos.y * 0.008 + t * 2.2) * 0.5;
+          float heat = 0.6 + 0.4 * turb;
+          float flicker = 0.7 + 0.3 * sin(vDist * 400.0 + t * 10.0) * sin(vDist * 900.0 + t * 7.0);
+          vec3 lava = mix(vec3(0.8, 0.15, 0.0), vec3(1.0, 0.7, 0.1), heat) * (0.8 + flicker * 0.6);
+          lava += vec3(1.0, 0.95, 0.5) * pow(max(0.0, heat - 0.7), 2.0) * 3.0;
+          c = mix(c, lava, inten * 0.85);
+          a = mix(a, 0.5 + heat * 0.3, inten * 0.5);
         } else if (mode > 11.5 && mode < 12.5) {
           float sparkle = pow(0.5 + 0.5 * sin(vDist * 800.0 + t * 4.0), 8.0);
           vec3 ice = mix(vec3(0.4, 0.6, 0.9), vec3(0.9, 0.95, 1.0), sparkle);
           c = mix(c, ice, inten * 0.6);
           a = mix(a, 0.4, inten * 0.3);
         } else if (mode > 12.5 && mode < 13.5) {
+          // Reactive Pulse - expanding ring from pulse center
+          float pDist = length(vPos - uPulseCenter) / 400.0;
           float wavefront = mod(t * 2.0, 3.0);
-          float d2 = abs(normDist - wavefront * 0.5);
+          float d2 = abs(pDist - wavefront * 0.5);
           float ring2 = exp(-d2 * d2 * 20.0);
           c = mix(c * 0.7, c * 2.0, ring2 * inten);
           a = mix(a * 0.5, 0.7, ring2 * inten);
-        } else if (mode > 13.5 && mode < 14.5) {
-          float flash2 = step(0.5, fract(t * 2.0));
-          a *= mix(0.1, 1.0, flash2 * inten + (1.0 - inten));
         } else if (mode > 14.5 && mode < 15.5) {
           float angle = atan(vPos.z, vPos.x);
           float sweep = mod(t * 1.5, 6.28318);
@@ -265,12 +282,6 @@ export function buildEdges(scene, tesseract) {
           float glow = pow(max(0.0, sin(t * 0.8 + vDist * 300.0)), 12.0);
           c = mix(c * 0.5, vec3(0.8, 0.9, 0.5) * 1.5, glow * inten);
           a = mix(a * 0.4, 0.6, glow * inten);
-        } else if (mode > 17.5 && mode < 18.5) {
-          // Electricity
-          float arc = fract(sin(floor(vDist * 50.0) * 91.3 + floor(t * 6.0) * 17.7) * 43758.5);
-          float zap = step(0.9, arc) * exp(-fract(t * 6.0) * 5.0);
-          c = mix(c, vec3(0.5, 0.7, 1.0) * 2.0, zap * inten);
-          a = mix(a, 0.8, zap * inten);
         }
 
         gl_FragColor = vec4(c * shimmer, a * shimmer);
@@ -366,6 +377,7 @@ export function buildNodes(scene, tesseract) {
       uLightMode: { value: 0.0 },
       uLightSpeed: { value: 1.0 },
       uLightIntensity: { value: 1.0 },
+      uPulseCenter: { value: new THREE.Vector3(0, 0, 0) },
     },
     vertexShader: `
       uniform float uPixelRatio;
@@ -373,6 +385,7 @@ export function buildNodes(scene, tesseract) {
       uniform float uLightMode;
       uniform float uLightSpeed;
       uniform float uLightIntensity;
+      uniform vec3 uPulseCenter;
       attribute float size;
       attribute vec3 color;
       attribute float selectState;
@@ -417,22 +430,23 @@ export function buildNodes(scene, tesseract) {
           float hue = fract(normDist * 0.5 - t * 0.3);
           c = mix(c, hsv2rgb(vec3(hue, 0.9, 1.0)), inten);
         } else if (mode > 3.5 && mode < 4.5) {
-          // 4: Starlight - individual twinkle with sharp on/off pops
+          // 4: Starlight - bright twinkling with size pops and white sparkle
           float phase1 = fract(sin(vid * 127.1) * 43758.5453);
           float phase2 = fract(sin(vid * 311.7) * 43758.5453);
-          float twinkle = sin(t * (2.0 + phase1 * 4.0) + phase1 * 6.28) * sin(t * (1.5 + phase2 * 3.0) + phase2 * 6.28);
-          float pop = pow(max(0.0, twinkle), 3.0);
-          float bright = 0.3 + pop * 1.7;
-          c = mix(c, c * bright + vec3(0.1, 0.12, 0.15) * pop, inten);
-          s *= 0.7 + pop * 1.0;
+          float twinkle = sin(t * (3.0 + phase1 * 5.0) + phase1 * 6.28) * sin(t * (2.0 + phase2 * 4.0) + phase2 * 6.28);
+          float pop = pow(max(0.0, twinkle), 2.0);
+          float bright = 0.6 + pop * 2.0;
+          c = mix(c, c * bright + vec3(0.2, 0.22, 0.28) * pop, inten);
+          s *= 0.8 + pop * 1.2;
         } else if (mode > 5.5 && mode < 6.5) {
-          // 6: Aurora - curtains with spectrum wave rippling through
-          float curtain = sin(pos.x * 0.008 + t * 0.6) * cos(pos.z * 0.008 + t * 0.4);
-          float wave = sin(pos.y * 0.015 - t * 2.0 + curtain * 2.0) * 0.5 + 0.5;
-          float hue = fract(0.3 + curtain * 0.12 + wave * 0.1 + pos.y * 0.0008);
-          vec3 aurora = hsv2rgb(vec3(hue, 0.75, 0.8 + wave * 0.2));
-          float shimmerA = 0.5 + 0.5 * curtain;
-          c = mix(c, aurora * (0.8 + wave * 0.5), inten * shimmerA);
+          // 6: Aurora - flowing curtains sweeping across with visible motion
+          float curtainX = sin(pos.x * 0.006 + t * 1.2) * cos(pos.z * 0.006 + t * 0.8);
+          float sweep = sin(pos.x * 0.003 - t * 0.7) * 0.5 + 0.5;
+          float wave = sin(pos.y * 0.012 - t * 3.0 + curtainX * 3.0) * 0.5 + 0.5;
+          float hue = fract(0.28 + curtainX * 0.15 + sweep * 0.08 + wave * 0.12);
+          vec3 aurora = hsv2rgb(vec3(hue, 0.8, 0.9 + wave * 0.1));
+          float shimmerA = 0.4 + 0.6 * pow(sweep, 0.5);
+          c = mix(c, aurora * (1.0 + wave * 0.4), inten * shimmerA);
         } else if (mode > 6.5 && mode < 7.5) {
           // 7: Matrix Rain - green cascade downward
           float col = floor(pos.x * 0.05 + pos.z * 0.05);
@@ -454,12 +468,18 @@ export function buildNodes(scene, tesseract) {
           c = mix(c * 0.3, vec3(1.0, 0.2, 0.3) * 1.8, dPulse * inten);
           s *= 0.7 + dPulse * 0.8;
         } else if (mode > 8.5 && mode < 9.5) {
-          // 9: Ocean - deep blue waves
-          float wave1 = sin(pos.x * 0.015 + t * 1.2) * cos(pos.z * 0.012 + t * 0.8);
-          float wave2 = sin(pos.x * 0.008 - t * 0.6) * sin(pos.z * 0.01 + t * 1.0);
-          float w = 0.5 + 0.5 * (wave1 + wave2 * 0.5);
-          vec3 ocean = mix(vec3(0.0, 0.05, 0.2), vec3(0.1, 0.5, 0.9), w);
+          // 9: Ocean - rolling waves with visible swells and whitecap crests
+          float swell1 = sin(pos.x * 0.01 + t * 1.5) * cos(pos.z * 0.008 + t * 1.0);
+          float swell2 = sin(pos.x * 0.005 - t * 0.8 + pos.z * 0.007) * 0.5;
+          float foam = pow(max(0.0, swell1), 3.0);
+          float depth = 0.5 + 0.5 * (swell1 + swell2 * 0.5);
+          vec3 deep = vec3(0.0, 0.04, 0.18);
+          vec3 mid = vec3(0.05, 0.3, 0.7);
+          vec3 crest = vec3(0.3, 0.7, 1.0);
+          vec3 ocean = mix(deep, mid, depth);
+          ocean = mix(ocean, crest, foam * 0.6);
           c = mix(c, ocean, inten);
+          s *= 0.9 + swell1 * 0.25 + foam * 0.3;
         } else if (mode > 9.5 && mode < 10.5) {
           // 10: Lightning - traveling bolts with branching
           float maxBolt = 0.0;
@@ -488,15 +508,15 @@ export function buildNodes(scene, tesseract) {
           c = mix(c, vec3(0.7, 0.8, 1.0) * 2.5, maxBolt * inten);
           s *= 1.0 + maxBolt * 1.5;
         } else if (mode > 10.5 && mode < 11.5) {
-          // 11: Lava - flickering embers with crawling heat
-          float blob = sin(pos.x * 0.008 + t * 0.6) * sin(pos.y * 0.01 + t * 0.5) * sin(pos.z * 0.008 + t * 0.7);
-          float heat = 0.5 + 0.5 * blob;
-          float flicker = 0.6 + 0.4 * sin(vid * 43.7 + t * 8.0) * sin(vid * 91.3 + t * 6.0);
-          float ember = pow(max(0.0, sin(vid * 173.3 + t * 5.0)), 6.0);
-          vec3 lava = mix(vec3(0.5, 0.0, 0.0), vec3(1.0, 0.6, 0.0), heat) * flicker;
-          lava += vec3(1.0, 0.9, 0.4) * ember * 0.5;
-          c = mix(c, lava, inten * (heat * 0.7 + ember * 0.3));
-          s *= 0.9 + ember * 0.4;
+          // 11: Lava - bright roiling fire with rapid flicker and hot spots
+          float turb = sin(pos.x * 0.012 + t * 1.8) * sin(pos.z * 0.01 + t * 1.5) + sin(pos.y * 0.008 + t * 2.2) * 0.5;
+          float heat = 0.6 + 0.4 * turb;
+          float flicker = 0.7 + 0.3 * sin(vid * 43.7 + t * 10.0) * sin(vid * 91.3 + t * 7.0);
+          float hotSpot = pow(max(0.0, sin(vid * 173.3 + t * 6.0)), 4.0);
+          vec3 lava = mix(vec3(0.8, 0.15, 0.0), vec3(1.0, 0.7, 0.1), heat) * (0.8 + flicker * 0.6);
+          lava += vec3(1.0, 0.95, 0.5) * hotSpot * 1.5;
+          c = mix(c, lava, inten * 0.9);
+          s *= 0.85 + hotSpot * 0.6 + heat * 0.2;
         } else if (mode > 11.5 && mode < 12.5) {
           // 12: Frozen - icy blue sparkle
           float sparkle = pow(0.5 + 0.5 * sin(vid * 173.3 + t * 4.0), 8.0);
@@ -504,16 +524,13 @@ export function buildNodes(scene, tesseract) {
           c = mix(c, ice, inten);
           s *= 0.8 + sparkle * 0.5;
         } else if (mode > 12.5 && mode < 13.5) {
-          // 13: Reactive Pulse - nodes near origin pulse, ripple outward
+          // 13: Reactive Pulse - expanding ring from selected node or center
+          float pDist = length(pos - uPulseCenter) / 400.0;
           float wavefront = mod(t * 2.0, 3.0);
-          float d = abs(normDist - wavefront * 0.5);
+          float d = abs(pDist - wavefront * 0.5);
           float ring = exp(-d * d * 20.0);
-          c = mix(c * 0.75, c * 2.0, ring * inten);
-          s *= 0.85 + ring * 0.5;
-        } else if (mode > 13.5 && mode < 14.5) {
-          // 14: Strobe - sharp on/off flash
-          float flash = step(0.5, fract(t * 2.0));
-          c = mix(c * 0.1, c * 1.8, flash * inten + (1.0 - inten));
+          c = mix(c * 0.75, c * 2.5, ring * inten);
+          s *= 0.85 + ring * 0.7;
         } else if (mode > 14.5 && mode < 15.5) {
           // 15: Comet - bright point sweeps around the shape
           float angle = atan(pos.z, pos.x);
@@ -539,17 +556,6 @@ export function buildNodes(scene, tesseract) {
           vec3 fColor = mix(vec3(0.9, 0.95, 0.6), vec3(0.4, 0.9, 0.5), warm);
           c = mix(c * 0.6, fColor * 2.0, glow * inten);
           s *= 0.6 + glow * 1.5;
-        } else if (mode > 17.5 && mode < 18.5) {
-          // 18: Electricity - crackling arcs across the surface
-          float arc1 = fract(sin(floor(vid * 0.1) * 91.3 + floor(t * 6.0) * 17.7) * 43758.5);
-          float arc2 = fract(sin(floor(vid * 0.05) * 73.1 + floor(t * 4.0) * 31.3) * 43758.5);
-          float zap1 = step(0.92, arc1) * exp(-fract(t * 6.0) * 6.0);
-          float zap2 = step(0.88, arc2) * exp(-fract(t * 4.0) * 4.0);
-          float zap = max(zap1, zap2 * 0.7);
-          float crawl = sin(vid * 7.3 + t * 12.0) * 0.5 + 0.5;
-          float spark = zap * (0.5 + crawl * 0.5);
-          c = mix(c, vec3(0.5, 0.7, 1.0) * 2.5, spark * inten);
-          s *= 1.0 + spark * 1.2;
         }
 
         vColor = c;

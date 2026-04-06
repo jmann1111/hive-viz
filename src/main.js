@@ -195,23 +195,32 @@ const LIGHTSHOW_PRESETS = {
   lava: { label: 'Lava', mode: 11 },
   frozen: { label: 'Frozen', mode: 12 },
   reactive: { label: 'Reactive Pulse', mode: 13 },
-  strobe: { label: 'Strobe', mode: 14 },
   comet: { label: 'Comet', mode: 15 },
   plasma: { label: 'Plasma', mode: 16 },
   fireflies: { label: 'Fireflies', mode: 17 },
-  electricity: { label: 'Electricity', mode: 18 },
 };
 
 function syncLightshow() {
+  // Get selected node position for reactive pulse epicenter
+  let px = 0, py = 0, pz = 0;
+  if (selectedNode && nodeHandle) {
+    const idx = nodeHandle.indexByNodeId.get(selectedNode);
+    if (idx !== undefined) {
+      const pa = nodeHandle.posAttr.array;
+      px = pa[idx * 3]; py = pa[idx * 3 + 1]; pz = pa[idx * 3 + 2];
+    }
+  }
   if (nodeHandle?.material?.uniforms) {
     nodeHandle.material.uniforms.uLightMode.value = lightMode;
     nodeHandle.material.uniforms.uLightSpeed.value = lightSpeed;
     nodeHandle.material.uniforms.uLightIntensity.value = lightIntensity;
+    nodeHandle.material.uniforms.uPulseCenter.value.set(px, py, pz);
   }
   if (edgeHandle?.material?.uniforms) {
     edgeHandle.material.uniforms.uLightMode.value = lightMode;
     edgeHandle.material.uniforms.uLightSpeed.value = lightSpeed;
     edgeHandle.material.uniforms.uLightIntensity.value = lightIntensity;
+    edgeHandle.material.uniforms.uPulseCenter.value.set(px, py, pz);
   }
 }
 
@@ -272,6 +281,7 @@ function selectNode(nodeId, options = {}) {
     clearSelection(edgeHandle, nodeHandle);
   }
   for (const cb of onSelectCallbacks) cb(nodeId);
+  syncLightshow();
 }
 
 function deselectNode() {
@@ -279,6 +289,7 @@ function deselectNode() {
   selectedTitle.style.display = 'none';
   if (edgeHandle && nodeHandle) clearSelection(edgeHandle, nodeHandle);
   for (const cb of onSelectCallbacks) cb(null);
+  syncLightshow();
 }
 
 function openInlineNode(nodeId, options = {}) {
