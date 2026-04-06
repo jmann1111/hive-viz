@@ -395,7 +395,6 @@ const LAYOUT_PRESETS = {
   shell: { label: 'Nautilus', fn: layoutShell },
   constellation: { label: 'Constellation', fn: layoutConstellation },
   atom: { label: 'Atom', fn: layoutAtom },
-  tornado: { label: 'Tornado', fn: layoutTornado },
   hourglass: { label: 'Hourglass', fn: layoutHourglass },
   crown: { label: 'Crown', fn: layoutCrown },
   heart: { label: 'Heart', fn: layoutHeart },
@@ -784,24 +783,6 @@ function layoutAtom(tesseract) {
       const z = Math.sin(t) * R * Math.sin(tilt);
       positions[sorted[rank]] = { x, y: y2, z };
     }
-  }
-  return positions;
-}
-
-function layoutTornado(tesseract) {
-  const sorted = sortedNodeIndices(tesseract);
-  const n = sorted.length;
-  const positions = new Array(n);
-  for (let rank = 0; rank < n; rank++) {
-    const t = rank / n;
-    const angle = t * Math.PI * 2 * 12;
-    const r = 20 + t * t * 300;
-    const y = (t - 0.5) * 600;
-    positions[sorted[rank]] = {
-      x: Math.cos(angle) * r,
-      y,
-      z: Math.sin(angle) * r,
-    };
   }
   return positions;
 }

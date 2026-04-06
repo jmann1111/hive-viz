@@ -169,14 +169,8 @@ export function buildEdges(scene, tesseract) {
           c = mix(c, hsv2rgb(vec3(hue, 0.9, 1.0)), inten * 0.7);
           a = mix(a, 0.6, inten * 0.5);
         } else if (mode > 3.5 && mode < 4.5) {
-          // Starlight - edges shimmer with bright pulsing glow
-          float phase1 = fract(sin(vDist * 500.0) * 43758.5);
-          float phase2 = fract(sin(vDist * 1100.0) * 43758.5);
-          float twinkle = sin(t * (2.0 + phase1 * 4.0) + phase1 * 6.28) * sin(t * (1.5 + phase2 * 3.0) + phase2 * 6.28);
-          float pop = pow(max(0.0, twinkle), 2.0);
-          float bright = 0.7 + pop * 1.8;
-          c = mix(c, c * bright + vec3(0.15, 0.18, 0.22) * pop, inten);
-          a *= mix(1.0, 0.6 + pop * 1.2, inten);
+          // Starlight - edges stay subtle, just dim slightly to let nodes be the stars
+          a *= mix(1.0, 0.5, inten);
         } else if (mode > 5.5 && mode < 6.5) {
           // Aurora - flowing curtains with visible sweeping motion
           float curtainX = sin(vPos.x * 0.006 + t * 1.2) * cos(vPos.z * 0.006 + t * 0.8);
@@ -430,14 +424,21 @@ export function buildNodes(scene, tesseract) {
           float hue = fract(normDist * 0.5 - t * 0.3);
           c = mix(c, hsv2rgb(vec3(hue, 0.9, 1.0)), inten);
         } else if (mode > 3.5 && mode < 4.5) {
-          // 4: Starlight - bright twinkling with size pops and white sparkle
-          float phase1 = fract(sin(vid * 127.1) * 43758.5453);
-          float phase2 = fract(sin(vid * 311.7) * 43758.5453);
-          float twinkle = sin(t * (3.0 + phase1 * 5.0) + phase1 * 6.28) * sin(t * (2.0 + phase2 * 4.0) + phase2 * 6.28);
-          float pop = pow(max(0.0, twinkle), 2.0);
-          float bright = 0.6 + pop * 2.0;
-          c = mix(c, c * bright + vec3(0.2, 0.22, 0.28) * pop, inten);
-          s *= 0.8 + pop * 1.2;
+          // 4: Starlight - nodes flicker like real stars, dim base with bright pops
+          float p1 = fract(sin(vid * 127.1) * 43758.5453);
+          float p2 = fract(sin(vid * 311.7) * 43758.5453);
+          float p3 = fract(sin(vid * 537.3) * 43758.5453);
+          // Each star has its own rhythm - multiply different frequencies for irregular flicker
+          float flick = sin(t * (1.5 + p1 * 3.0) + p1 * 6.28)
+                      * sin(t * (2.2 + p2 * 2.5) + p2 * 4.13)
+                      * sin(t * (0.7 + p3 * 1.8) + p3 * 5.47);
+          // Only positive peaks become bright - sharp cutoff like a star flash
+          float star = pow(max(0.0, flick), 4.0);
+          // Dim baseline, bright flash
+          float brightness = mix(1.0, 0.35 + star * 3.0, inten);
+          c *= brightness;
+          c += vec3(0.15, 0.17, 0.25) * star * inten;
+          s *= mix(1.0, 0.6 + star * 1.8, inten);
         } else if (mode > 5.5 && mode < 6.5) {
           // 6: Aurora - flowing curtains sweeping across with visible motion
           float curtainX = sin(pos.x * 0.006 + t * 1.2) * cos(pos.z * 0.006 + t * 0.8);
