@@ -89,6 +89,24 @@ export class Tesseract {
       sn._node.linkCount = this.adjacency.get(sn.id)?.size || 0;
     }
 
+    // Clamp outlier nodes (orphans/low-link) so they don't drift far from the cluster
+    const dists = simNodes.map(sn => Math.sqrt(sn._node.x ** 2 + sn._node.y ** 2 + sn._node.z ** 2));
+    dists.sort((a, b) => a - b);
+    const p90 = dists[Math.floor(dists.length * 0.9)];
+    const maxAllowed = p90 * 1.5;
+    for (const sn of simNodes) {
+      const d = Math.sqrt(sn._node.x ** 2 + sn._node.y ** 2 + sn._node.z ** 2);
+      if (d > maxAllowed && d > 0) {
+        const shrink = maxAllowed / d;
+        sn._node.x *= shrink;
+        sn._node.y *= shrink;
+        sn._node.z *= shrink;
+        sn.x = sn._node.x / scale;
+        sn.y = sn._node.y / scale;
+        sn.z = sn._node.z / scale;
+      }
+    }
+
     // Store simulation and scale for later drag interactions
     this.simulation = sim;
     this.simNodes = simNodes;
