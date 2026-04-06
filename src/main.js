@@ -198,9 +198,7 @@ const LIGHTSHOW_PRESETS = {
   comet: { label: 'Comet', mode: 15 },
   plasma: { label: 'Plasma', mode: 16 },
   fireflies: { label: 'Fireflies', mode: 17 },
-  nebula: { label: 'Nebula', mode: 19 },
   sonar: { label: 'Sonar', mode: 20 },
-  embers: { label: 'Embers', mode: 21 },
 };
 
 function syncLightshow() {
@@ -385,7 +383,6 @@ function toggleSidebar() {
 const LAYOUT_PRESETS = {
   galaxy: { label: 'Galaxy', fn: layoutGalaxy },
   sphere: { label: 'Sphere', fn: layoutSphere },
-  ring: { label: 'Halo Ring', fn: layoutRing },
   pyramid: { label: 'Pyramid', fn: layoutPyramid },
   grid: { label: 'Grid Cube', fn: layoutGrid },
   spiral: { label: 'Spiral Tower', fn: layoutSpiral },
@@ -400,6 +397,11 @@ const LAYOUT_PRESETS = {
   hourglass: { label: 'Hourglass', fn: layoutHourglass },
   crown: { label: 'Crown', fn: layoutCrown },
   heart: { label: 'Heart', fn: layoutHeart },
+  diamond: { label: 'Diamond', fn: layoutDiamond },
+  disc: { label: 'Disc', fn: layoutDisc },
+  pillar: { label: 'Pillar', fn: layoutPillar },
+  staircase: { label: 'Staircase', fn: layoutStaircase },
+  lotus: { label: 'Lotus', fn: layoutLotus },
 };
 
 let layoutTransition = null; // { from, to, t, duration }
@@ -440,29 +442,6 @@ function layoutSphere(tesseract) {
       x: Math.cos(theta) * r * radius * linkBoost,
       y: y * radius * linkBoost,
       z: Math.sin(theta) * r * radius * linkBoost,
-    };
-  }
-  return positions;
-}
-
-function layoutRing(tesseract) {
-  const sorted = sortedNodeIndices(tesseract);
-  const n = sorted.length;
-  const positions = new Array(n);
-  // Halo-style ring: massive vertical ring like the Halo from the games
-  // Ring stands upright in the XY plane, camera sees it curving up and overhead
-  const radius = 400;
-  const tubeRadius = 25;
-  for (let rank = 0; rank < n; rank++) {
-    const t = rank / n;
-    const angle = t * Math.PI * 2;
-    const tubeAngle = (rank * 7.3) % (Math.PI * 2);
-    // Ring in XY plane (vertical), tube adds thickness in Z and radially
-    const r = radius + Math.cos(tubeAngle) * tubeRadius;
-    positions[sorted[rank]] = {
-      x: Math.cos(angle) * r,
-      y: Math.sin(angle) * r,
-      z: Math.sin(tubeAngle) * tubeRadius,
     };
   }
   return positions;
@@ -866,6 +845,157 @@ function layoutHeart(tesseract) {
       x: x * scale,
       y: y * scale,
       z: layer,
+    };
+  }
+  return positions;
+}
+
+function layoutDiamond(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  const height = 350;
+  const radius = 250;
+  // Octahedron: two pyramids joined at equator
+  // 50% on 8 edges, 30% on faces, 20% on equator ring
+  const edgeCount = Math.floor(n * 0.5);
+  const faceCount = Math.floor(n * 0.3);
+  const top = { x: 0, y: height, z: 0 };
+  const bot = { x: 0, y: -height, z: 0 };
+  const eq = []; // 4 equator points
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2;
+    eq.push({ x: Math.cos(a) * radius, y: 0, z: Math.sin(a) * radius });
+  }
+  // 8 edges: 4 top-to-equator, 4 bottom-to-equator
+  const edges = [];
+  for (let i = 0; i < 4; i++) { edges.push([top, eq[i]]); edges.push([bot, eq[i]]); }
+  for (let rank = 0; rank < n; rank++) {
+    if (rank < edgeCount) {
+      const ei = rank % 8;
+      const edge = edges[ei];
+      const t = (Math.floor(rank / 8) + 0.5) / Math.ceil(edgeCount / 8);
+      const jitter = 5;
+      const h = Math.sin(rank * 127.1) * 43758.5453;
+      positions[sorted[rank]] = {
+        x: edge[0].x + (edge[1].x - edge[0].x) * t + (h - Math.floor(h) - 0.5) * jitter,
+        y: edge[0].y + (edge[1].y - edge[0].y) * t + (Math.sin(rank * 269.5) * 43758.5453 - Math.floor(Math.sin(rank * 269.5) * 43758.5453) - 0.5) * jitter,
+        z: edge[0].z + (edge[1].z - edge[0].z) * t + (Math.sin(rank * 419.2) * 43758.5453 - Math.floor(Math.sin(rank * 419.2) * 43758.5453) - 0.5) * jitter,
+      };
+    } else if (rank < edgeCount + faceCount) {
+      // Face fill: pick a triangular face, random barycentric
+      const fi = rank % 8;
+      const apex = fi < 4 ? top : bot;
+      const e1 = eq[fi % 4];
+      const e2 = eq[(fi + 1) % 4];
+      let u = Math.sin(rank * 127.1) * 43758.5453; u = u - Math.floor(u);
+      let v = Math.sin(rank * 311.7) * 43758.5453; v = v - Math.floor(v);
+      if (u + v > 1) { u = 1 - u; v = 1 - v; }
+      const w = 1 - u - v;
+      positions[sorted[rank]] = {
+        x: apex.x * w + e1.x * u + e2.x * v,
+        y: apex.y * w + e1.y * u + e2.y * v,
+        z: apex.z * w + e1.z * u + e2.z * v,
+      };
+    } else {
+      // Equator ring fill
+      const a = (rank / (n - edgeCount - faceCount)) * Math.PI * 2;
+      const r = radius * (0.9 + Math.sin(rank * 73.1) * 0.1);
+      positions[sorted[rank]] = { x: Math.cos(a) * r, y: (Math.sin(rank * 91.3) * 0.5) * 10, z: Math.sin(a) * r };
+    }
+  }
+  return positions;
+}
+
+function layoutDisc(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  // Flat disc with concentric rings, most-connected at center
+  const maxR = 350;
+  for (let rank = 0; rank < n; rank++) {
+    const t = rank / n;
+    const r = Math.sqrt(t) * maxR; // sqrt for even density
+    const angle = rank * 2.399963; // golden angle for even spread
+    positions[sorted[rank]] = {
+      x: Math.cos(angle) * r,
+      y: 0,
+      z: Math.sin(angle) * r,
+    };
+  }
+  return positions;
+}
+
+function layoutPillar(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  // Cylinder: nodes on the surface
+  const radius = 150;
+  const height = 600;
+  for (let rank = 0; rank < n; rank++) {
+    const t = rank / n;
+    const angle = rank * 2.399963; // golden angle spiral up
+    const y = (t - 0.5) * height;
+    positions[sorted[rank]] = {
+      x: Math.cos(angle) * radius,
+      y: y,
+      z: Math.sin(angle) * radius,
+    };
+  }
+  return positions;
+}
+
+function layoutStaircase(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  // Spiral staircase with flat steps
+  const steps = 24;
+  const nodesPerStep = Math.ceil(n / steps);
+  const radius = 200;
+  const totalHeight = 500;
+  for (let rank = 0; rank < n; rank++) {
+    const step = Math.floor(rank / nodesPerStep);
+    const posOnStep = rank % nodesPerStep;
+    const stepAngle = (step / steps) * Math.PI * 4; // 2 full rotations
+    const y = (step / steps - 0.5) * totalHeight;
+    // Spread nodes on each step as a wedge
+    const wedge = (Math.PI * 2) / steps * 0.8; // each step covers a slice
+    const nodeAngle = stepAngle + (posOnStep / nodesPerStep - 0.5) * wedge;
+    const r = radius * (0.4 + (posOnStep / nodesPerStep) * 0.6);
+    positions[sorted[rank]] = {
+      x: Math.cos(nodeAngle) * r,
+      y: y,
+      z: Math.sin(nodeAngle) * r,
+    };
+  }
+  return positions;
+}
+
+function layoutLotus(tesseract) {
+  const sorted = sortedNodeIndices(tesseract);
+  const n = sorted.length;
+  const positions = new Array(n);
+  // Layered petals opening outward and upward
+  const petals = 8;
+  const layers = 5;
+  for (let rank = 0; rank < n; rank++) {
+    const petal = rank % petals;
+    const layer = Math.floor(rank / petals) % layers;
+    const depth = Math.floor(rank / (petals * layers));
+    const baseAngle = (petal / petals) * Math.PI * 2;
+    // Each layer opens wider and tilts up more
+    const openness = (layer + 1) / layers;
+    const r = 50 + openness * 250 + depth * 8;
+    const lift = openness * openness * 200 - 50;
+    // Slight spread within each petal
+    const spread = (depth / (n / (petals * layers))) * 0.3;
+    const angle = baseAngle + (spread - 0.15);
+    positions[sorted[rank]] = {
+      x: Math.cos(angle) * r,
+      y: lift,
+      z: Math.sin(angle) * r,
     };
   }
   return positions;
