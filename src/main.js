@@ -16,9 +16,11 @@ scene.background = new THREE.Color(0x020208);
 scene.fog = new THREE.FogExp2(0x020208, 0.00005);
 
 const camera = new THREE.PerspectiveCamera(60, 1, 1, 30000);
-camera.position.set(200, 100, 300); // Start INSIDE the galaxy
+camera.position.set(200, 180, 300); // Start INSIDE the galaxy, slightly elevated
+camera.lookAt(0, 50, 0);
 
 const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 50, 0); // Look slightly above center so shapes sit higher on screen
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.rotateSpeed = 0.6;
@@ -111,6 +113,15 @@ function updateCamera() {
   }
 }
 
+function recenterCamera() {
+  // Smoothly recenter camera to see the full shape
+  const center = new THREE.Vector3(0, 50, 0);
+  const dist = camera.position.distanceTo(controls.target);
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  cameraGoal = center.clone().add(dir.multiplyScalar(Math.max(dist, 300)));
+  cameraTarget = center;
+}
+
 function updateSize() {
   // Re-read DPR every resize -- handles dragging between monitors
   const dpr = window.devicePixelRatio;
@@ -174,7 +185,7 @@ function syncAutoRotate() {
   controls.autoRotateSpeed = 0.1 + autoRotateSpeed * 2.5; // maps 0-1 to 0.1-2.6
   // Always rotate around the true center, not a selected node
   if (autoRotateOn) {
-    controls.target.set(0, 0, 0);
+    controls.target.set(0, 50, 0);
   }
 }
 
@@ -300,6 +311,8 @@ function openInlineNode(nodeId, options = {}) {
     forceFocus: Boolean(options.forceFocus),
   });
   sidebarApi?.openInlineReader(nodeId);
+  // Recenter after reader panel opens so shape stays visible
+  setTimeout(recenterCamera, 300);
 }
 
 

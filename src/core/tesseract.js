@@ -18,13 +18,21 @@ export const FOLDER_ORDER = [
 
 export class Tesseract {
   constructor(graphData) {
-    this.nodes = graphData.nodes.filter(n => {
+    const filteredNodes = graphData.nodes.filter(n => {
       if (SKIP_PATHS.some(p => n.path.startsWith(p))) return false;
       if (!n.folder || n.folder.endsWith('.md')) return false;
       return true;
     });
+    const filteredIds = new Set(filteredNodes.map(n => n.id));
+    const filteredEdges = graphData.edges.filter(e => filteredIds.has(e.source) && filteredIds.has(e.target));
+
+    // Remove orphan nodes (0 edges) - they create ghost artifacts
+    const connectedIds = new Set();
+    for (const e of filteredEdges) { connectedIds.add(e.source); connectedIds.add(e.target); }
+    this.nodes = filteredNodes.filter(n => connectedIds.has(n.id));
+
     const nodeIds = new Set(this.nodes.map(n => n.id));
-    this.edges = graphData.edges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
+    this.edges = filteredEdges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
     this.nodeIndex = new Map();
     this.pathIndex = new Map();
     this.adjacency = new Map();
