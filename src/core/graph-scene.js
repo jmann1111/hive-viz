@@ -169,8 +169,8 @@ export function buildEdges(scene, tesseract) {
           c = mix(c, hsv2rgb(vec3(hue, 0.9, 1.0)), inten * 0.7);
           a = mix(a, 0.6, inten * 0.5);
         } else if (mode > 3.5 && mode < 4.5) {
-          // Starlight - edges stay subtle, just dim slightly to let nodes be the stars
-          a *= mix(1.0, 0.5, inten);
+          // Starlight - edges stay normal, no effect (nodes are the show)
+
         } else if (mode > 5.5 && mode < 6.5) {
           // Aurora - flowing curtains with visible sweeping motion
           float curtainX = sin(vPos.x * 0.006 + t * 1.2) * cos(vPos.z * 0.006 + t * 0.8);
@@ -276,6 +276,36 @@ export function buildEdges(scene, tesseract) {
           float glow = pow(max(0.0, sin(t * 0.8 + vDist * 300.0)), 12.0);
           c = mix(c * 0.5, vec3(0.8, 0.9, 0.5) * 1.5, glow * inten);
           a = mix(a * 0.4, 0.6, glow * inten);
+        } else if (mode > 18.5 && mode < 19.5) {
+          // Nebula
+          float n1 = sin(vPos.x * 0.003 + t * 0.15) * sin(vPos.y * 0.004 - t * 0.12) * sin(vPos.z * 0.003 + t * 0.1);
+          float n2 = sin(vPos.x * 0.005 - t * 0.08 + vPos.z * 0.004) * cos(vPos.y * 0.003 + t * 0.1);
+          float cloud = 0.5 + 0.5 * (n1 + n2);
+          float hue3 = fract(0.6 + cloud * 0.3 + vPos.x * 0.0003 + t * 0.02);
+          vec3 nebColor = hsv2rgb(vec3(hue3, 0.5 + cloud * 0.3, 0.4 + cloud * 0.6));
+          c = mix(c, nebColor, inten * 0.6);
+          a = mix(a, 0.3 + cloud * 0.3, inten * 0.4);
+        } else if (mode > 19.5 && mode < 20.5) {
+          // Sonar
+          float pDist2 = length(vPos) / 400.0;
+          float ping1 = mod(t * 1.0, 4.0);
+          float ping2 = mod(t * 1.0 + 2.0, 4.0);
+          float d1 = abs(pDist2 - ping1 * 0.4);
+          float d2 = abs(pDist2 - ping2 * 0.4);
+          float ring1 = exp(-d1 * d1 * 40.0);
+          float ring2 = exp(-d2 * d2 * 40.0) * 0.6;
+          float sonar = max(ring1, ring2);
+          c = mix(c * 0.6, vec3(0.2, 1.0, 0.7) * 1.2, sonar * inten);
+          a = mix(a * 0.4, 0.7, sonar * inten);
+        } else if (mode > 20.5 && mode < 21.5) {
+          // Embers
+          float seed2 = fract(sin(vDist * 400.0) * 43758.5);
+          float cycle = fract(t * 0.3 + seed2);
+          float heat = cycle < 0.15 ? cycle / 0.15 : exp(-(cycle - 0.15) * 3.0);
+          vec3 emberColor = mix(vec3(0.2, 0.02, 0.0), vec3(0.9, 0.3, 0.0), min(1.0, heat * 2.0));
+          emberColor = mix(emberColor, vec3(1.0, 0.85, 0.4), max(0.0, heat * 2.0 - 1.0));
+          c = mix(c, emberColor, inten * 0.7);
+          a = mix(a, 0.3 + heat * 0.4, inten * 0.4);
         }
 
         gl_FragColor = vec4(c * shimmer, a * shimmer);
@@ -424,21 +454,16 @@ export function buildNodes(scene, tesseract) {
           float hue = fract(normDist * 0.5 - t * 0.3);
           c = mix(c, hsv2rgb(vec3(hue, 0.9, 1.0)), inten);
         } else if (mode > 3.5 && mode < 4.5) {
-          // 4: Starlight - nodes flicker like real stars, dim base with bright pops
+          // 4: Starlight - nodes twinkle with bright flashes and size pops
           float p1 = fract(sin(vid * 127.1) * 43758.5453);
           float p2 = fract(sin(vid * 311.7) * 43758.5453);
-          float p3 = fract(sin(vid * 537.3) * 43758.5453);
-          // Each star has its own rhythm - multiply different frequencies for irregular flicker
-          float flick = sin(t * (1.5 + p1 * 3.0) + p1 * 6.28)
-                      * sin(t * (2.2 + p2 * 2.5) + p2 * 4.13)
-                      * sin(t * (0.7 + p3 * 1.8) + p3 * 5.47);
-          // Only positive peaks become bright - sharp cutoff like a star flash
-          float star = pow(max(0.0, flick), 4.0);
-          // Dim baseline, bright flash
-          float brightness = mix(1.0, 0.35 + star * 3.0, inten);
-          c *= brightness;
-          c += vec3(0.15, 0.17, 0.25) * star * inten;
-          s *= mix(1.0, 0.6 + star * 1.8, inten);
+          // Two overlapping sine waves create irregular on/off pattern
+          float wave1 = sin(t * (2.0 + p1 * 4.0) + p1 * 6.28);
+          float wave2 = sin(t * (3.0 + p2 * 3.0) + p2 * 4.13);
+          float flash = pow(max(0.0, wave1 * wave2), 2.0);
+          // Normal brightness baseline, bright white flash on top
+          c = c + vec3(0.4, 0.45, 0.6) * flash * inten * 2.0;
+          s *= 1.0 + flash * inten * 1.5;
         } else if (mode > 5.5 && mode < 6.5) {
           // 6: Aurora - flowing curtains sweeping across with visible motion
           float curtainX = sin(pos.x * 0.006 + t * 1.2) * cos(pos.z * 0.006 + t * 0.8);
@@ -557,6 +582,47 @@ export function buildNodes(scene, tesseract) {
           vec3 fColor = mix(vec3(0.9, 0.95, 0.6), vec3(0.4, 0.9, 0.5), warm);
           c = mix(c * 0.6, fColor * 2.0, glow * inten);
           s *= 0.6 + glow * 1.5;
+        } else if (mode > 18.5 && mode < 19.5) {
+          // 19: Nebula - slow drifting clouds of deep color, like floating inside a nebula
+          float n1 = sin(pos.x * 0.003 + t * 0.15) * sin(pos.y * 0.004 - t * 0.12) * sin(pos.z * 0.003 + t * 0.1);
+          float n2 = sin(pos.x * 0.005 - t * 0.08 + pos.z * 0.004) * cos(pos.y * 0.003 + t * 0.1);
+          float cloud = 0.5 + 0.5 * (n1 + n2);
+          float hue = fract(0.6 + cloud * 0.3 + pos.x * 0.0003 + t * 0.02);
+          vec3 nebColor = hsv2rgb(vec3(hue, 0.5 + cloud * 0.3, 0.4 + cloud * 0.6));
+          // Bright wisps where clouds overlap
+          float wisp = pow(max(0.0, n1 * n2 + 0.3), 2.0);
+          nebColor += vec3(0.3, 0.2, 0.5) * wisp;
+          c = mix(c, nebColor, inten * 0.8);
+          s *= 0.9 + wisp * 0.5;
+        } else if (mode > 19.5 && mode < 20.5) {
+          // 20: Sonar - rhythmic ping rings sweeping out from center with ghostly trail
+          float pDist = length(pos) / 400.0;
+          float ping1 = mod(t * 1.0, 4.0);
+          float ping2 = mod(t * 1.0 + 2.0, 4.0);
+          float d1 = abs(pDist - ping1 * 0.4);
+          float d2 = abs(pDist - ping2 * 0.4);
+          float ring1 = exp(-d1 * d1 * 40.0);
+          float ring2 = exp(-d2 * d2 * 40.0) * 0.6;
+          float trail1 = exp(-max(0.0, pDist - ping1 * 0.4) * 5.0) * step(0.0, ping1 * 0.4 - pDist + 0.3);
+          float sonar = max(ring1, ring2) + trail1 * 0.15;
+          vec3 sonarColor = mix(vec3(0.1, 0.4, 0.3), vec3(0.2, 1.0, 0.7), sonar);
+          c = mix(c * 0.7, sonarColor * 1.5, sonar * inten);
+          s *= 0.8 + sonar * 0.8;
+        } else if (mode > 20.5 && mode < 21.5) {
+          // 21: Embers - nodes glow hot then cool in waves, like dying fire embers rising
+          float seed = fract(sin(vid * 91.3) * 43758.5);
+          float cycle = fract(t * 0.3 + seed);
+          // Sharp rise to hot, slow cool-down
+          float heat = cycle < 0.15 ? cycle / 0.15 : exp(-(cycle - 0.15) * 3.0);
+          float hotness = pow(heat, 1.5);
+          // Color ramp: dark red -> orange -> bright yellow-white at peak
+          vec3 cool = vec3(0.2, 0.02, 0.0);
+          vec3 warm = vec3(0.9, 0.3, 0.0);
+          vec3 hot = vec3(1.0, 0.85, 0.4);
+          vec3 emberColor = mix(cool, warm, min(1.0, hotness * 2.0));
+          emberColor = mix(emberColor, hot, max(0.0, hotness * 2.0 - 1.0));
+          c = mix(c, emberColor, inten * 0.9);
+          s *= 0.7 + hotness * 1.0;
         }
 
         vColor = c;

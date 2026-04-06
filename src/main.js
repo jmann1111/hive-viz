@@ -198,6 +198,9 @@ const LIGHTSHOW_PRESETS = {
   comet: { label: 'Comet', mode: 15 },
   plasma: { label: 'Plasma', mode: 16 },
   fireflies: { label: 'Fireflies', mode: 17 },
+  nebula: { label: 'Nebula', mode: 19 },
+  sonar: { label: 'Sonar', mode: 20 },
+  embers: { label: 'Embers', mode: 21 },
 };
 
 function syncLightshow() {
@@ -387,7 +390,6 @@ const LAYOUT_PRESETS = {
   grid: { label: 'Grid Cube', fn: layoutGrid },
   spiral: { label: 'Spiral Tower', fn: layoutSpiral },
   torus_knot: { label: 'Torus Knot', fn: layoutTorusKnot },
-  vesica: { label: 'Vesica Piscis', fn: layoutVesica },
   icosahedron: { label: 'Icosahedron', fn: layoutIcosahedron },
   mobius: { label: 'Mobius Strip', fn: layoutMobius },
   infinity: { label: 'Infinity', fn: layoutInfinity },
@@ -447,18 +449,20 @@ function layoutRing(tesseract) {
   const sorted = sortedNodeIndices(tesseract);
   const n = sorted.length;
   const positions = new Array(n);
-  const radius = 300;
-  const tubeRadius = 30;
+  // Halo-style ring: massive vertical ring like the Halo from the games
+  // Ring stands upright in the XY plane, camera sees it curving up and overhead
+  const radius = 400;
+  const tubeRadius = 25;
   for (let rank = 0; rank < n; rank++) {
     const t = rank / n;
     const angle = t * Math.PI * 2;
-    // Torus: main circle + tube offset
-    const tubeAngle = (rank * 7.3) % (Math.PI * 2); // spread around tube
+    const tubeAngle = (rank * 7.3) % (Math.PI * 2);
+    // Ring in XY plane (vertical), tube adds thickness in Z and radially
     const r = radius + Math.cos(tubeAngle) * tubeRadius;
     positions[sorted[rank]] = {
       x: Math.cos(angle) * r,
-      y: Math.sin(tubeAngle) * tubeRadius,
-      z: Math.sin(angle) * r,
+      y: Math.sin(angle) * r,
+      z: Math.sin(tubeAngle) * tubeRadius,
     };
   }
   return positions;
@@ -621,25 +625,6 @@ function layoutTorusKnot(tesseract) {
   return positions;
 }
 
-function layoutVesica(tesseract) {
-  const sorted = sortedNodeIndices(tesseract);
-  const n = sorted.length;
-  const positions = new Array(n);
-  const R = 180, offset = 120;
-  for (let rank = 0; rank < n; rank++) {
-    const circle = rank % 2;
-    const t = (rank / n) * Math.PI * 2 * 3;
-    const r = R * (0.3 + 0.7 * Math.abs(Math.sin(t * 0.5)));
-    const cx = circle === 0 ? -offset / 2 : offset / 2;
-    positions[sorted[rank]] = {
-      x: cx + Math.cos(t) * r * 0.7,
-      y: Math.sin(t) * r,
-      z: ((rank * 7) % 50 - 25),
-    };
-  }
-  return positions;
-}
-
 function layoutIcosahedron(tesseract) {
   const sorted = sortedNodeIndices(tesseract);
   const n = sorted.length;
@@ -687,15 +672,21 @@ function layoutInfinity(tesseract) {
   const sorted = sortedNodeIndices(tesseract);
   const n = sorted.length;
   const positions = new Array(n);
-  const scale = 250;
+  const scale = 280;
   for (let rank = 0; rank < n; rank++) {
     const t = (rank / n) * Math.PI * 2;
-    const r = scale * Math.cos(t);
-    const layer = ((rank * 7) % 20 - 10) * 3;
+    // Lemniscate of Bernoulli: x = cos(t)/(1+sin^2(t)), y = sin(t)cos(t)/(1+sin^2(t))
+    const s2 = Math.sin(t) * Math.sin(t);
+    const denom = 1 + s2;
+    const x = Math.cos(t) / denom * scale;
+    const y = Math.sin(t) * Math.cos(t) / denom * scale;
+    // Tube thickness around the curve
+    const tubeAngle = (rank * 11.3) % (Math.PI * 2);
+    const tube = 18;
     positions[sorted[rank]] = {
-      x: r * Math.cos(t),
-      y: r * Math.sin(t) * 0.5,
-      z: layer,
+      x: x + Math.cos(tubeAngle) * tube * 0.3,
+      y: y + Math.sin(tubeAngle) * tube,
+      z: Math.cos(tubeAngle) * tube,
     };
   }
   return positions;
@@ -739,18 +730,54 @@ function layoutConstellation(tesseract) {
   const sorted = sortedNodeIndices(tesseract);
   const n = sorted.length;
   const positions = new Array(n);
-  // Random but deterministic scatter in a flat-ish disc
+  // Create distinct star clusters with anchor points spread across 3D space
+  // Like real constellations: bright anchors connected by lines with scattered filler stars
+  const numClusters = 12;
+  const anchors = [];
+  for (let i = 0; i < numClusters; i++) {
+    // Spread anchors in a sphere using golden spiral
+    const y = 1 - (2 * i) / (numClusters - 1);
+    const r = Math.sqrt(1 - y * y);
+    const theta = 2 * Math.PI * i / ((1 + Math.sqrt(5)) / 2);
+    anchors.push({
+      x: Math.cos(theta) * r * 350,
+      y: y * 300,
+      z: Math.sin(theta) * r * 350,
+    });
+  }
   for (let rank = 0; rank < n; rank++) {
-    const hash1 = Math.sin(rank * 127.1 + 311.7) * 43758.5453;
-    const hash2 = Math.sin(rank * 269.5 + 183.3) * 43758.5453;
-    const hash3 = Math.sin(rank * 419.2 + 371.9) * 43758.5453;
-    const r = 50 + (hash1 - Math.floor(hash1)) * 350;
-    const angle = (hash2 - Math.floor(hash2)) * Math.PI * 2;
-    positions[sorted[rank]] = {
-      x: Math.cos(angle) * r,
-      y: ((hash3 - Math.floor(hash3)) - 0.5) * 80,
-      z: Math.sin(angle) * r,
-    };
+    // Assign each node to a cluster, with top-ranked nodes as anchor stars
+    const cluster = rank % numClusters;
+    const anchor = anchors[cluster];
+    const depth = Math.floor(rank / numClusters);
+    if (depth === 0) {
+      // Anchor star - sits right at the cluster center
+      positions[sorted[rank]] = { x: anchor.x, y: anchor.y, z: anchor.z };
+    } else if (depth < 4) {
+      // Inner stars - tight cluster around anchor, on lines between anchors
+      const neighbor = anchors[(cluster + depth) % numClusters];
+      const lerp = 0.15 + depth * 0.08;
+      const jitter = 15;
+      const h1 = Math.sin(rank * 127.1) * 43758.5453;
+      const h2 = Math.sin(rank * 269.5) * 43758.5453;
+      const h3 = Math.sin(rank * 419.2) * 43758.5453;
+      positions[sorted[rank]] = {
+        x: anchor.x + (neighbor.x - anchor.x) * lerp + (h1 - Math.floor(h1) - 0.5) * jitter,
+        y: anchor.y + (neighbor.y - anchor.y) * lerp + (h2 - Math.floor(h2) - 0.5) * jitter,
+        z: anchor.z + (neighbor.z - anchor.z) * lerp + (h3 - Math.floor(h3) - 0.5) * jitter,
+      };
+    } else {
+      // Filler stars - scattered around the cluster with more spread
+      const spread = 60 + depth * 5;
+      const h1 = Math.sin(rank * 127.1) * 43758.5453;
+      const h2 = Math.sin(rank * 269.5) * 43758.5453;
+      const h3 = Math.sin(rank * 419.2) * 43758.5453;
+      positions[sorted[rank]] = {
+        x: anchor.x + (h1 - Math.floor(h1) - 0.5) * spread,
+        y: anchor.y + (h2 - Math.floor(h2) - 0.5) * spread,
+        z: anchor.z + (h3 - Math.floor(h3) - 0.5) * spread,
+      };
+    }
   }
   return positions;
 }
