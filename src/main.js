@@ -186,10 +186,8 @@ let lightIntensity = 1.0;
 const LIGHTSHOW_PRESETS = {
   off: { label: 'Off', mode: 0 },
   spectrum: { label: 'Spectrum Wave', mode: 1 },
-  breathe: { label: 'Breathe', mode: 2 },
-  ripple: { label: 'Ripple', mode: 3 },
   starlight: { label: 'Starlight', mode: 4 },
-  aurora: { label: 'Aurora', mode: 6 },
+  aurora: { label: 'Aurora Borealis', mode: 6 },
   matrix: { label: 'Matrix', mode: 7 },
   heartbeat: { label: 'Heartbeat', mode: 8 },
   ocean: { label: 'Ocean', mode: 9 },
@@ -199,7 +197,9 @@ const LIGHTSHOW_PRESETS = {
   reactive: { label: 'Reactive Pulse', mode: 13 },
   strobe: { label: 'Strobe', mode: 14 },
   comet: { label: 'Comet', mode: 15 },
-  galaxy_spin: { label: 'Galaxy Spin', mode: 16 },
+  plasma: { label: 'Plasma', mode: 16 },
+  fireflies: { label: 'Fireflies', mode: 17 },
+  electricity: { label: 'Electricity', mode: 18 },
 };
 
 function syncLightshow() {
@@ -379,7 +379,6 @@ const LAYOUT_PRESETS = {
   vesica: { label: 'Vesica Piscis', fn: layoutVesica },
   icosahedron: { label: 'Icosahedron', fn: layoutIcosahedron },
   mobius: { label: 'Mobius Strip', fn: layoutMobius },
-  wormhole: { label: 'Wormhole', fn: layoutWormhole },
   infinity: { label: 'Infinity', fn: layoutInfinity },
   wave: { label: 'Wave', fn: layoutWave },
   shell: { label: 'Nautilus', fn: layoutShell },
@@ -388,8 +387,6 @@ const LAYOUT_PRESETS = {
   tornado: { label: 'Tornado', fn: layoutTornado },
   hourglass: { label: 'Hourglass', fn: layoutHourglass },
   crown: { label: 'Crown', fn: layoutCrown },
-  wings: { label: 'Wings', fn: layoutWings },
-  eye: { label: 'Eye', fn: layoutEye },
   heart: { label: 'Heart', fn: layoutHeart },
 };
 
@@ -676,23 +673,6 @@ function layoutMobius(tesseract) {
   return positions;
 }
 
-function layoutWormhole(tesseract) {
-  const sorted = sortedNodeIndices(tesseract);
-  const n = sorted.length;
-  const positions = new Array(n);
-  for (let rank = 0; rank < n; rank++) {
-    const t = (rank / n) * 2 - 1; // -1 to 1
-    const angle = rank * 0.5;
-    const r = 30 + 200 * Math.pow(Math.abs(t), 0.5);
-    positions[sorted[rank]] = {
-      x: Math.cos(angle) * r,
-      y: t * 350,
-      z: Math.sin(angle) * r,
-    };
-  }
-  return positions;
-}
-
 function layoutInfinity(tesseract) {
   const sorted = sortedNodeIndices(tesseract);
   const n = sorted.length;
@@ -851,55 +831,6 @@ function layoutCrown(tesseract) {
   return positions;
 }
 
-function layoutWings(tesseract) {
-  const sorted = sortedNodeIndices(tesseract);
-  const n = sorted.length;
-  const positions = new Array(n);
-  for (let rank = 0; rank < n; rank++) {
-    const side = rank % 2 === 0 ? 1 : -1;
-    const t = (rank / n) * Math.PI * 0.9;
-    const span = 50 + (rank / n) * 300;
-    const lift = Math.sin(t) * 150;
-    const depth = ((rank * 13) % 30 - 15);
-    positions[sorted[rank]] = {
-      x: side * span * Math.cos(t * 0.5),
-      y: lift - Math.pow(rank / n, 2) * 100,
-      z: depth + Math.sin(t * 2) * 30,
-    };
-  }
-  return positions;
-}
-
-function layoutEye(tesseract) {
-  const sorted = sortedNodeIndices(tesseract);
-  const n = sorted.length;
-  const positions = new Array(n);
-  const pupil = Math.floor(n * 0.15);
-  for (let rank = 0; rank < n; rank++) {
-    if (rank < pupil) {
-      // Dense center pupil
-      const angle = rank * 2.399;
-      const r = Math.sqrt(rank / pupil) * 50;
-      positions[sorted[rank]] = {
-        x: Math.cos(angle) * r,
-        y: Math.sin(angle) * r,
-        z: ((rank % 5) - 2) * 8,
-      };
-    } else {
-      // Eye shape (2D almond)
-      const t = ((rank - pupil) / (n - pupil)) * Math.PI * 2;
-      const rx = 300;
-      const ry = 150 * Math.sin(t * 0.5);
-      const layer = ((rank * 7) % 10 - 5) * 4;
-      positions[sorted[rank]] = {
-        x: Math.cos(t) * rx,
-        y: Math.sin(t) * Math.abs(ry),
-        z: layer,
-      };
-    }
-  }
-  return positions;
-}
 
 function layoutHeart(tesseract) {
   const sorted = sortedNodeIndices(tesseract);
